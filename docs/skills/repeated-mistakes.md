@@ -68,11 +68,23 @@ because the ordering-dependent buildroot made the failing set move between
 runs of one commit. libheif linked Fedora openjph 0.25 for the same reason
 (`6940ae0`, `4d05fe0`).
 
+The rule then regressed without anyone deciding it should. `build-stage.yml`
+downloaded earlier stages with `pattern: ${{ steps.prior.outputs.pattern }}`
+while no step had that id, so the pattern was empty and download-artifact
+fetched every artifact the run had produced so far -- same-stage siblings that
+happened to finish first included. The `prior` step now names
+`rpm-s{0,...,N-1}-*` explicitly.
+
 **Rule.** A consumer of a library this factory rebuilds goes in a strictly
-later stage than the provider. A failure naming a soname the factory used to
-provide, or that Hummingbird provides at a different major, is a staging
-question before it is a recipe question. The stage assignment lives in
-`config/upstream-sources.json`.
+later wave than the provider. Waves are now solved from real BuildRequires by
+`tools/build_graph.py`, which puts every consumer after its provider by
+construction; a hand-assigned `stage` only orders the members of a
+BuildRequires cycle. The hand stages had missed real edges: the solved graph
+is twelve waves deep where the config went to ten, and put 194 packages in
+the first wave where config put 321. A failure naming a soname the factory used to
+provide, or that Hummingbird provides at a different major, is an ordering
+question before it is a recipe question: check the `build-graph` artifact
+for the edge.
 
 ## 4. A config change that alters a build has to invalidate the published copy
 
@@ -88,6 +100,20 @@ changed: spec, patches, sources, stage, source URL, checksum, dist_bump
 counter, and now the satisfiability of its Requires. Extending what the plan
 considers "changed" is the fix; bumping Release by hand to force a rebuild is
 not.
+
+This is now structural. Each published image carries
+`org.projectbluefin.factory.state`, the input digest (recipe files, inventory
+entry, build-root pin and Hummingbird repo) of every build in it
+(`tools/factory_state.py`), and `prepare` rebuilds exactly the packages whose
+digest moved, plus their direct BuildRequires dependents. A change to
+anything that decides how a package is built belongs in that digest.
+
+The first labelled image learned the state of every package it did not
+rebuild from the older NEVR comparison, and libgphoto2 slipped through: #269
+changed its recipe (dropping lockdev) at the same Release, the run that would
+have built it was cancelled, and the label then recorded the new recipe as
+published. Utah found `liblockdev.so.1` still required. Bump Release when a
+recipe change changes the binaries; the label catches everything after it.
 
 ## 5. A global exclusion fights a local dependency
 
@@ -135,11 +161,22 @@ commit claimed Renovate would track it; Renovate cannot run faster than the
 rot.
 
 **Rule.** The build root is pulled once, in `prepare`, and shared with every
-job as an artifact. `BUILDROOT_IMAGE` records the expected digest and a
+job as an artifact. `config/buildroot-image` records the expected digest and a
 mismatch warns. `tests/test_buildroot_sharing.py` fails any workflow that
 pulls the build root from a registry per job. Do not add a per-job pull, and
 do not "fix" an exit 125 `manifest unknown` on the build root by editing a
 digest.
+
+**Why the mirror exists.** Pulling the moving tag kept runs alive but let the
+root change under the factory several times a day, and the package cache key
+includes the root digest, so late stages never hit: webkitgtk built cold in
+two consecutive runs because fedora:44 moved from `2cdfedd` to `94e175d`
+between them. The fix is not pulling quay by digest (that is this section's
+failure again) but owning the bytes: `refresh-buildroot.yml` copies fedora:44
+weekly to `ghcr.io/projectbluefin/utah-buildroot` under a dated tag, which
+nothing prunes, and opens a PR moving the pin in `config/buildroot-image`
+(`tools/buildroot_pin.py`). A mirror pin is pulled by its digest, fatally,
+because that digest cannot rot. Do not add a cleanup policy to that package.
 
 ## 8. A gate that has never run has never proved anything
 
@@ -244,7 +281,13 @@ prepare-time witness inside the critical section. If they differ, refuse to
 publish and rerun the newer commit. The lock protects the check and the copy
 together; it does not make a stale build current.
 
-## 15. Atomic publication must not discard successful build work
+The one image that may differ from the witness is one published by an
+earlier attempt of the same run (`org.projectbluefin.factory.run`). Once
+publication became incremental, a run with failures still publishes, and a
+"re-run failed jobs" -- which keeps the first attempt's prepare outputs --
+otherwise always refused over its own first attempt.
+
+## 15. A failed package must not discard successful build work
 
 **What happened.** The published repository was the only witness and the only
 reuse mechanism. When any late package or final gate failed, the repository
@@ -258,6 +301,15 @@ then restore it into the ordinary stage artifact on a later exact-key hit. The
 cache never replaces rebuild selection or final repository gates, and stale or
 directly changed packages never reuse it. Read
 [`package-build-cache.md`](package-build-cache.md) before changing this path.
+
+The cache kept the work but not the result: the repository still moved only
+when every selected package built, and one flaky test (fish) held back all of
+them -- 3 of 117 full runs published in four weeks. Publication is now
+incremental (`tools/publish_gate.py`): each package this run built replaces
+its own previous build, a failed one keeps its previous build and is named in
+the tracking issue, and only the Hummingbird-only consumer transaction over
+the whole candidate can stop the tag. Do not reintroduce a wave result into
+the publish job's `if:`; `assert_gate_enforced` rejects it.
 
 ## 16. An observability tool that parses one line of external output crashes the whole run
 
@@ -309,11 +361,25 @@ Furthermore, `cups-filters` only weakly recommends `braille-printer-app`, which
 carries heavy dependencies (`liblouis`, `ImageMagick`, etc.) not in the
 Hummingbird base.
 
+The first import then built against Fedora 44's `ghostscript` and `libexif`,
+which the publish gate's Hummingbird-only transaction cannot see: `libppd`
+Requires `ghostscript >= 10.0.0`, and `libcupsfilters` links `libexif.so.12`.
+
 **Rule.** When importing cups-filters 2.x or cups-browsed into the factory,
-import `libcupsfilters` (stage 0), `libppd` (stage 1, depends on
-libcupsfilters), and `cups-filters` / `cups-browsed` (stage 2, depending on both
-libraries). Do not pull `braille-printer-app` into the core printing closure
-unless Braille printing is explicitly required.
+import `ghostscript` (stage 1) and `libexif` (stage 0) as well, then
+`libcupsfilters` (stage 2, BuildRequires both), `libppd` (stage 3, depends on
+libcupsfilters and ghostscript), and `cups-filters` / `cups-browsed` (stage 4,
+depending on both libraries). The factory's ghostscript uses its bundled
+jbig2dec, ijs and `Resource/` fonts and CMaps and builds without libpaper, gtk,
+X11 and dvipdf, because their runtime providers are in neither Hummingbird nor
+the factory; the spec's bconds say why each one is off. Do not pull
+`braille-printer-app` into the core printing closure unless Braille printing
+is explicitly required.
+
+A runtime library whose Fedora source no upstream serves cannot be imported:
+`lockdev` is a 2011 alioth snapshot pinned by MD5, so `libgphoto2` builds with
+`--disable-lockdev --disable-ttylock` instead. This is the same call ffmpeg
+made for libqrencode and openal in #249.
 
 ## 18. Broad credential or tool exposure across build matrix jobs
 
@@ -348,6 +414,10 @@ image, `cosign verify` the digest actually pulled -- never the mutable tag,
 which can move again after the check -- against this same workflow's own
 keyless OIDC identity. `latest` is only ever published from `refs/heads/main`;
 a branch tag is only ever published by this workflow running on that branch.
+(Since publication moved into the reusable `publish-repository.yml`, which
+signs as itself, the check admits exactly two workflow files -- that one and
+`rebuild-rpms.yml`, which signed every earlier image -- by an anchored
+pattern, still at the one ref that matched.)
 Pin `--certificate-identity` to whichever ref actually matched, not a regex
 wide enough to accept either -- a regex scoped to `main` alone breaks every
 branch-tag seed, since those are signed under their own ref. `cosign verify`
@@ -355,6 +425,22 @@ reads `$DOCKER_CONFIG/config.json`, not podman's own auth file, so a
 `podman login` without a matching `--authfile` is invisible to it (the
 "Publish the repository" step hit the same split; see its comment on
 `DOCKER_CONFIG`).
+
+## 20. Bypassing the source-lock contract with direct JSON parsing
+
+**What happened.** `prepare` originally ran an inline heredoc that parsed
+`config/upstream-sources.json` directly (`#101`). When the rebuild plan logic
+was extracted into `tools/rebuild_matrix.py`, `main()` continued parsing
+`config/upstream-sources.json` via `json.loads` instead of using
+`tools.package_inventory.source_locks`. Consequently, validation against
+duplicate lock entries and out-of-range stage assignments was bypassed at matrix
+planning time.
+
+**Rule.** Every factory tool and workflow step must consume
+`tools.package_inventory.source_locks` or `inventory` rather than parsing
+`config/upstream-sources.json` directly from the working tree. (Historical reads
+across git ranges, such as `git show ${base_sha}:...`, remain raw JSON.) The lock
+file is parsed and validated in exactly one place.
 
 ## Quick checks before pushing a fix
 
