@@ -78,6 +78,7 @@ def write_root(root: Path, packages: list[dict], *, specs: set[str] | None = Non
         name = entry["name"]
         package_dir = root / "packages" / name
         package_dir.mkdir(parents=True, exist_ok=True)
+        (package_dir / "sources").write_text("SHA512 (dummy) = 0\n")
         if specs is not None and name not in specs:
             continue
         (package_dir / f"{name}.spec").write_text(
@@ -430,7 +431,8 @@ class MainTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(self.stderr, "")
         self.assertIn("published repo has 1 source packages", out)
-        self.assertIn("skip mozc: already published", out)
+        self.assertIn("gnome-shell: not published", out)
+        self.assertIn('"mozc"', outputs["trusted"])
         self.assertEqual(json.loads(outputs["build_list"]), ["gnome-shell"])
 
     def test_unreadable_hummingbird_repo_is_survivable(self):
@@ -445,7 +447,8 @@ class MainTest(unittest.TestCase):
             "could not read the Hummingbird repository", self.stderr
         )
         # The judgement is not made, so the run trusts the recipe match alone.
-        self.assertIn("skip mozc: already published", out)
+        self.assertIn("gnome-shell: not published", out)
+        self.assertIn('"mozc"', outputs["trusted"])
 
     def test_a_stage_with_no_job_is_fatal(self):
         # Silently dropping these published a repository missing them.
@@ -453,9 +456,9 @@ class MainTest(unittest.TestCase):
             {"name": "mozc", "version": "2.0", "stage": 0},
             {"name": "late", "version": "1.0", "stage": 11},
         ]
-        with self.assertRaises(SystemExit) as caught:
+        with self.assertRaises(ValueError) as caught:
             self.run_main(packages, env={})
-        self.assertIn("no job exists for stage 11 or later", str(caught.exception))
+        self.assertIn("unknown stage for late: 11", str(caught.exception))
         self.assertIn("late", str(caught.exception))
 
     def test_outputs_carry_every_stage_and_the_cache_list(self):
@@ -493,22 +496,28 @@ class MainTest(unittest.TestCase):
         outputs = dict(
             line.split("=", 1) for line in self.output.read_text().splitlines()
         )
-        self.assertIn("changed package recipes: mozc", out.getvalue())
+        self.assertIn("change detection: diff; changed: mozc", out.getvalue())
         # An author who just edited a recipe is owed a real build.
         self.assertEqual(json.loads(outputs["cacheable"]), ["gnome-shell"])
 
     def test_no_changed_recipes_is_reported_as_none(self):
         code, out, outputs = self.run_main(env={})
-        self.assertIn("changed package recipes: none", out)
+        self.assertIn("change detection: diff; changed: none", out)
 
     def test_a_stale_published_build_rebuilds_and_says_what_went_missing(self):
         # Exactly the recipe on disk, and still wrong: linked against a
         # soname the build root no longer carries.
         published = package_primary(
             ("mozc", "2.0", "1.hum42.bfin", (), ("libavcodec.so.62",)),
+            ("ffmpeg", "1.0", "1.hum42.bfin", ("libavcodec.so.63",), ()),
             ("gnome-shell", "51", "1.hum42.bfin", (), ()),
         )
         code, out, outputs = self.run_main(
+            packages=[
+                {"name": "mozc", "version": "2.0", "stage": 0},
+                {"name": "ffmpeg", "version": "1.0", "stage": 0},
+                {"name": "gnome-shell", "version": "51", "stage": 9},
+            ],
             specs=set(),
             env={"FACTORY_REPO": "file:///repo/"},
             fetch=[published, f"{METADATA_OPEN}</metadata>".encode()],
@@ -519,7 +528,7 @@ class MainTest(unittest.TestCase):
             "which nothing provides",
             out,
         )
-        self.assertIn("skip gnome-shell: already published", out)
+        self.assertIn('"gnome-shell"', outputs["trusted"])
         self.assertEqual(json.loads(outputs["build_list"]), ["mozc"])
         # A stale package must not be served out of the build cache: the key
         # would hit and hand back the broken build.
@@ -553,7 +562,7 @@ class MainTest(unittest.TestCase):
         ]
         code, out, outputs = self.run_main(packages, env={})
         self.assertEqual(code, 0)
-        self.assertIn("stage 0: 260 packages in 2 chunks", out)
+        self.assertIn("wave 0: 260 packages in 2 chunks", out)
         chunks = json.loads(outputs["stage0_chunks"])
         self.assertEqual([len(json.loads(chunk)) for chunk in chunks], [250, 10])
         # Chunking splits the handover, never the selection.
