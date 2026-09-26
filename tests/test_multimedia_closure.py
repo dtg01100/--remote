@@ -340,14 +340,15 @@ class PublishedNevraTests(unittest.TestCase):
         # is dormant on today's runner image, so a missing install shows up
         # only on the runner-image bump that makes it live. Assert the wiring
         # instead. `prepare` carries the same install for the same reason.
-        from tools.publish_gate import load_workflow
+        from tools.publish_gate import load_workflow, PUBLISH_WORKFLOW
 
         workflow = load_workflow()
-        for job in ("prepare", "publish"):
-            runs = " ".join(
-                str(step.get("run", ""))
-                for step in workflow["jobs"][job]["steps"]
-            )
+        publication = load_workflow(PUBLISH_WORKFLOW)
+        runs_by_job = {
+            "prepare": " ".join(str(s.get("run", "")) for s in workflow["jobs"]["prepare"]["steps"]),
+            "publish": " ".join(str(s.get("run", "")) for s in publication["jobs"]["publish"]["steps"]),
+        }
+        for job, runs in runs_by_job.items():
             # assertTrue, not assertIn: assertIn would print the job's entire
             # run block as the haystack and bury the message.
             self.assertTrue(
@@ -357,10 +358,10 @@ class PublishedNevraTests(unittest.TestCase):
             )
 
     def test_the_publish_summary_closes_its_fence_on_failure(self) -> None:
-        from tools.publish_gate import load_workflow
+        from tools.publish_gate import load_workflow, PUBLISH_WORKFLOW
 
-        workflow = load_workflow()
-        publish_steps = workflow["jobs"]["publish"]["steps"]
+        publication = load_workflow(PUBLISH_WORKFLOW)
+        publish_steps = publication["jobs"]["publish"]["steps"]
         step = next(s for s in publish_steps if "Report the Bluefin multimedia closure" in s.get("name", ""))
         run = step["run"]
         self.assertIn("|| status=$?", run)
