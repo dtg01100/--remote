@@ -458,6 +458,30 @@ class FailClosedTests(unittest.TestCase):
                 subprocess.run = original_run
             self.assertIn("--no-verify", str(cm.exception))
 
+    def test_dirty_checkout_fails_closed(self) -> None:
+        from tools.audit_gnome_build_meta import _verify_checkout, Loader
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.email", "a@b.c"], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.name", "t"], check=True)
+            (root / "element.bst").write_text("kind: meson\n")
+            subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-qm", "pin"], check=True)
+            head = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "HEAD"],
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+            loader = Loader(root)
+            self.assertEqual(_verify_checkout(loader, head), head)
+
+            # A local modification means the tree is no longer the pinned commit.
+            (root / "element.bst").write_text("kind: autotools\n")
+            with self.assertRaises(SystemExit) as cm:
+                _verify_checkout(loader, head)
+            self.assertIn("local modifications", str(cm.exception))
+            self.assertIn("element.bst", str(cm.exception))
+
     def test_non_git_checkout_passes_with_no_verify(self) -> None:
         # main() with --no-verify should allow an exported snapshot.
         import json as _json
@@ -473,9 +497,9 @@ class FailClosedTests(unittest.TestCase):
                 "mapping": {"mutter": "core/mutter.bst"},
                 "factory_alias": {},
             }
-            pin_path = root / "pin.json"
+            pin_path = Path(tmp) / "pin.json"
             pin_path.write_text(_json.dumps(pin))
-            sources_path = root / "sources.json"
+            sources_path = Path(tmp) / "sources.json"
             sources_path.write_text(_json.dumps({"packages": [{"name": "mutter", "version": "51.beta"}]}))
             pkg = root / "packages" / "mutter"
             pkg.mkdir(parents=True)
@@ -515,9 +539,9 @@ class FailClosedTests(unittest.TestCase):
                 "mapping": {"mutter": "core/mutter.bst"},
                 "factory_alias": {},
             }
-            pin_path = root / "pin.json"
+            pin_path = Path(tmp) / "pin.json"
             pin_path.write_text(_json.dumps(pin))
-            sources_path = root / "sources.json"
+            sources_path = Path(tmp) / "sources.json"
             sources_path.write_text(_json.dumps({"packages": [{"name": "mutter", "version": "51.beta"}]}))
             json_out = Path(tmp) / "out.json"
             md_out = Path(tmp) / "out.md"
@@ -537,7 +561,10 @@ class FailClosedTests(unittest.TestCase):
         from tools.audit_gnome_build_meta import main as audit_main
         import json as _json, subprocess as _sp
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            # The pin/sources files live outside the checkout: an untracked file
+            # inside it would (correctly) be reported as a dirty working tree.
+            root = Path(tmp) / "gbm"
+            root.mkdir()
             _sp.run(["git", "init", str(root)], capture_output=True, check=True)
             _sp.run(["git", "-C", str(root), "config", "user.email", "test@test"], capture_output=True)
             _sp.run(["git", "-C", str(root), "config", "user.name", "test"], capture_output=True)
@@ -553,9 +580,9 @@ class FailClosedTests(unittest.TestCase):
                 "mapping": {"mutter": "core/mutter.bst"},
                 "factory_alias": {},
             }
-            pin_path = root / "pin.json"
+            pin_path = Path(tmp) / "pin.json"
             pin_path.write_text(_json.dumps(pin))
-            sources_path = root / "sources.json"
+            sources_path = Path(tmp) / "sources.json"
             sources_path.write_text(_json.dumps({"packages": [{"name": "mutter", "version": "51.beta"}]}))
             json_out = Path(tmp) / "out.json"
             md_out = Path(tmp) / "out.md"
@@ -851,6 +878,17 @@ class FeatureComparisonTests(unittest.TestCase):
             self.assertIn("-Dprofiler", reason)
 
 
+def _StubElement(build_depends: list[str]):
+    """A resolved element carrying only the dependency edges under test."""
+    from tools.audit_gnome_build_meta import Element
+
+    return Element(
+        path="stub.bst", kind="meson", sources=[], variables={},
+        build_depends=list(build_depends), runtime_depends=[], depends=[],
+        includes=[], extensions=[], primary_source=None,
+    )
+
+
 class DependencyComparisonTests(unittest.TestCase):
     def test_gbm_edges_match_pkgconfig_and_devel_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -873,6 +911,41 @@ class DependencyComparisonTests(unittest.TestCase):
         result = dependency_comparison(None, {"build_requires": ["glib2-devel"]})
         self.assertEqual(result["gbm_edges"], 0)
         self.assertEqual(result["gbm_only"], [])
+
+    def test_split_api_dependency_is_not_collapsed(self) -> None:
+        from tools.audit_gnome_build_meta import _gbm_dep_key, _rpm_dep_key
+
+        self.assertEqual(_gbm_dep_key("sdk/gtk+-3.bst"), ("gtk", "3"))
+        self.assertEqual(_gbm_dep_key("sdk/gtk.bst"), ("gtk", ""))
+        self.assertEqual(_rpm_dep_key("gtk3-devel"), ("gtk", "3"))
+        self.assertEqual(_rpm_dep_key("pkgconfig(gtk4)"), ("gtk", "4"))
+        self.assertEqual(_rpm_dep_key("pkgconfig(libsoup-3.0)"), ("libsoup", "3"))
+
+        gtk3_only = dependency_comparison(
+            _StubElement(["sdk/gtk+-3.bst", "sdk/libsoup2.bst"]),
+            {"build_requires": ["pkgconfig(gtk4)", "pkgconfig(libsoup-3.0)"]},
+        )
+        self.assertEqual(gtk3_only["matched_in_factory"], [])
+        self.assertEqual(
+            gtk3_only["gbm_only"], ["sdk/gtk+-3.bst", "sdk/libsoup2.bst"]
+        )
+
+        gtk3_match = dependency_comparison(
+            _StubElement(["sdk/gtk+-3.bst"]),
+            {"build_requires": ["gtk3-devel"]},
+        )
+        self.assertEqual(gtk3_match["matched_in_factory"], ["sdk/gtk+-3.bst"])
+
+    def test_api_stated_on_one_side_still_matches(self) -> None:
+        # glib2-devel vs the gbm element glib, gnome-desktop3 vs gnome-desktop.
+        result = dependency_comparison(
+            _StubElement(["sdk/glib.bst", "core/gnome-desktop.bst"]),
+            {"build_requires": ["glib2-devel"], "requires": ["gnome-desktop3"]},
+        )
+        self.assertEqual(
+            result["matched_in_factory"],
+            ["core/gnome-desktop.bst", "sdk/glib.bst"],
+        )
 
 
 class SecondarySourceAliasTests(unittest.TestCase):

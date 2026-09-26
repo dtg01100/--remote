@@ -48,8 +48,8 @@ packaging and not a one-time spreadsheet.
 ## Command
 
 ```sh
-# A checkout of gnome-build-meta at the pinned commit; the tool verifies the
-# working tree resolves to source.release_commit unless --no-verify is given.
+# A checkout of gnome-build-meta at the pinned commit; the tool verifies HEAD
+# is source.release_commit and the working tree is clean, unless --no-verify.
 git clone https://gitlab.gnome.org/GNOME/gnome-build-meta.git /tmp/gbm
 git -C /tmp/gbm checkout <source.release_commit>
 
@@ -83,8 +83,12 @@ For every mapped GNOME-owned factory source the audit reports:
   `needs_review`.
 - **dependency categories**: gbm `build-depends` / `runtime-depends` /
   `depends` are compared against the spec's `BuildRequires:` / `Requires:`
-  edges by normalized name (`pkgconfig(gtk4)` and `gtk4-devel` both normalize
-  to the gbm element `gtk`). `dependency_comparison` reports which gbm edges
+  edges by normalized name (`pkgconfig(glib-2.0)` and `glib2-devel` both
+  normalize to the gbm element `glib`). The trailing API version is kept
+  separately rather than discarded, so split-API libraries are not collapsed:
+  a `gtk3` edge does not match a spec that only requires `gtk4`. An API stated
+  on only one side still matches (Fedora's `gnome-desktop3` vs the gbm element
+  `gnome-desktop`). `dependency_comparison` reports which gbm edges
   matched a factory edge and which did not. Only that direction is reported:
   an RPM spec also carries Fedora toolchain/packaging edges that have no gbm
   element by design. Both raw lists stay in the report, because a gbm element

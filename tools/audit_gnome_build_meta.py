@@ -524,22 +524,44 @@ def feature_comparison(gbm_variables: dict, factory_options: dict) -> dict:
     }
 
 
-def _gbm_dep_name(ref: str) -> str:
-    """Comparable name of a gbm dependency element (``sdk/gtk.bst`` -> ``gtk``)."""
+def _split_api(candidate: str) -> tuple[str, str]:
+    """Split a dependency name into its stem and its API/major version.
+
+    ``glib-2.0`` -> ``("glib", "2")``, ``gtk3`` -> ``("gtk", "3")``,
+    ``gtk`` -> ``("gtk", "")``. Only the first numeric component is kept: a
+    split-API library is selected by its major version (gtk3 vs gtk4,
+    libsoup2 vs libsoup3), while the minor part of a pkg-config API name
+    (``-2.0``) carries no extra selection.
+    """
+    match = _DEP_VERSION_SUFFIX.search(candidate)
+    if not match:
+        return candidate.rstrip("+-") or candidate, ""
+    stem = candidate[: match.start()].rstrip("+-") or candidate
+    return stem, match.group(1)
+
+
+def _gbm_dep_key(ref: str) -> tuple[str, str]:
+    """Comparable ``(stem, api)`` of a gbm dependency element.
+
+    ``sdk/gtk+-3.bst`` -> ``("gtk", "3")``, ``sdk/gtk.bst`` -> ``("gtk", "")``.
+    """
     name = ref.rsplit("/", 1)[-1].removesuffix(".bst").lower()
-    return _DEP_VERSION_SUFFIX.sub("", name).rstrip("+-") or name
+    return _split_api(name)
 
 
 _PKGCONFIG_DEP = re.compile(r"^pkgconfig\((.+)\)$", flags=re.IGNORECASE)
-_DEP_VERSION_SUFFIX = re.compile(r"[-_.]?\d+(?:\.\d+)*$")
+_DEP_VERSION_SUFFIX = re.compile(r"[-_.]?(\d+)(?:\.\d+)*$")
 
 
-def _rpm_dep_name(name: str) -> str:
-    """Comparable name of an RPM dependency edge.
+def _rpm_dep_key(name: str) -> tuple[str, str]:
+    """Comparable ``(stem, api)`` of an RPM dependency edge.
 
     ``pkgconfig(glib-2.0)``, ``glib2-devel`` and ``glib2`` all mean the gbm
-    element ``glib``, so the pkgconfig wrapper, a ``-devel``/``-static``/
-    ``-libs`` suffix and the trailing API/version component are removed.
+    element ``glib``, so the pkgconfig wrapper and a
+    ``-devel``/``-static``/``-libs`` suffix are removed. The trailing
+    API/version component is kept separately instead of being discarded, so a
+    split-API library is not collapsed: ``gtk3-devel`` and ``pkgconfig(gtk4)``
+    name the same stem but different APIs.
     """
     candidate = name.strip().lower()
     match = _PKGCONFIG_DEP.match(candidate)
@@ -547,7 +569,24 @@ def _rpm_dep_name(name: str) -> str:
         candidate = match.group(1)
     for suffix in ("-devel", "-static", "-libs"):
         candidate = candidate.removesuffix(suffix)
-    return _DEP_VERSION_SUFFIX.sub("", candidate).rstrip("+-") or candidate
+    return _split_api(candidate)
+
+
+def _dep_key_matches(gbm_key: tuple[str, str], factory_keys: set) -> bool:
+    """Whether a gbm dependency edge is also declared by the spec.
+
+    The stems must be equal. The API version only has to agree when both
+    sides state one: Fedora names ``gnome-desktop3`` for the gbm element
+    ``gnome-desktop``, so a missing API on either side stays a match, while
+    two stated and differing APIs (gtk3 vs gtk4, libsoup2 vs libsoup3) do not.
+    """
+    stem, api = gbm_key
+    for other_stem, other_api in factory_keys:
+        if other_stem != stem:
+            continue
+        if not api or not other_api or api == other_api:
+            return True
+    return False
 
 
 def dependency_comparison(gbm: "Element | None", factory_spec: dict) -> dict:
@@ -567,9 +606,10 @@ def dependency_comparison(gbm: "Element | None", factory_spec: dict) -> dict:
     factory_edges = list(factory_spec.get("build_requires", [])) + list(
         factory_spec.get("requires", [])
     )
-    factory_names = {_rpm_dep_name(name) for name in factory_edges}
-    matched = [ref for ref in gbm_refs if _gbm_dep_name(ref) in factory_names]
-    missing = [ref for ref in gbm_refs if _gbm_dep_name(ref) not in factory_names]
+    factory_names = {_rpm_dep_key(name) for name in factory_edges}
+    matched = [ref for ref in gbm_refs if _dep_key_matches(_gbm_dep_key(ref), factory_names)]
+    missing = [ref for ref in gbm_refs
+               if not _dep_key_matches(_gbm_dep_key(ref), factory_names)]
     return {
         "gbm_edges": len(gbm_refs),
         "factory_edges": len(factory_edges),
@@ -1119,7 +1159,13 @@ def _validate_overrides(pin: dict) -> None:
 
 
 def _verify_checkout(loader: Loader, commit: str) -> str:
-    """Return the verified HEAD of the gbm checkout, or exit non-zero."""
+    """Return the verified HEAD of a clean gbm checkout, or exit non-zero.
+
+    Both halves matter: HEAD must be the pinned commit, and the working tree
+    must have no local modifications. A dirty tree would make the audit read
+    recipes that no commit contains, so the report's provenance would name a
+    commit that does not describe what was audited.
+    """
     try:
         proc = subprocess.run(
             ["git", "-C", str(loader.root), "rev-parse", "HEAD"],
@@ -1136,6 +1182,25 @@ def _verify_checkout(loader: Loader, commit: str) -> str:
         raise SystemExit(
             f"gnome-build-meta checkout is at {head}, not the pinned commit "
             f"{commit}. Pass --no-verify to audit an exported snapshot instead."
+        )
+    try:
+        status = subprocess.run(
+            ["git", "-C", str(loader.root), "status", "--porcelain"],
+            capture_output=True, text=True, check=True,
+        )
+    except (subprocess.CalledProcessError, OSError):
+        raise SystemExit(
+            f"could not read the git status of the gnome-build-meta checkout at "
+            f"{loader.root}. Pass --no-verify to audit an exported snapshot instead."
+        )
+    dirty = [line for line in status.stdout.splitlines() if line.strip()]
+    if dirty:
+        preview = ", ".join(line[3:] for line in dirty[:5])
+        more = f" (+{len(dirty) - 5} more)" if len(dirty) > 5 else ""
+        raise SystemExit(
+            f"gnome-build-meta checkout at {loader.root} has local modifications, so "
+            f"it does not represent the pinned commit {commit}: {preview}{more}. "
+            f"Pass --no-verify to audit a modified tree or an exported snapshot."
         )
     return head
 

@@ -3,7 +3,7 @@
   "generated_for": {
     "release_tag": "51.0",
     "release_commit": "a50b8c9de35f51c6a646c8178cde3c2c176725b6",
-    "factory_base": "7422b2ddd4f636ed248bf37cf504a425437a0461"
+    "factory_base": "c983402459d4c7a411336515299ef91de56ef7ca"
   },
   "unmapped_factory_sources": [
     {
@@ -49,6 +49,10 @@
     {
       "name": "gnome-autoar",
       "reason": "GNOME-owned module outside issue #201's initial core/sdk mapping scope; gnome-build-meta builds it as elements/core-deps/gnome-autoar.bst \u2014 candidate for a follow-up mapping pass."
+    },
+    {
+      "name": "gnome-initial-setup",
+      "reason": "GNOME-owned module outside issue #201's initial core/sdk mapping scope; gnome-build-meta builds it as elements/core/gnome-initial-setup.bst \u2014 candidate for a follow-up mapping pass."
     },
     {
       "name": "gnome-keyring",
@@ -103,8 +107,16 @@
       "reason": "GNOME-owned module outside issue #201's initial core/sdk mapping scope; gnome-build-meta builds it as elements/core-deps/libcloudproviders.bst \u2014 candidate for a follow-up mapping pass."
     },
     {
+      "name": "libgda",
+      "reason": "GNOME-owned factory source with no gnome-build-meta element at the pinned release (libgda is not part of the GNOME 51.0 core/sdk build), so there is nothing to audit against."
+    },
+    {
       "name": "libgexiv2",
       "reason": "GNOME-owned factory source with no gnome-build-meta element at the pinned release (not part of the GNOME 51.0 core/sdk build), so there is nothing to audit against."
+    },
+    {
+      "name": "libgsf",
+      "reason": "GNOME-owned module outside issue #201's initial core/sdk mapping scope; gnome-build-meta builds it as elements/core-deps/libgsf.bst \u2014 candidate for a follow-up mapping pass."
     },
     {
       "name": "libgtop2",
@@ -113,6 +125,10 @@
     {
       "name": "libgweather",
       "reason": "GNOME-owned module outside issue #201's initial core/sdk mapping scope; gnome-build-meta builds it as elements/core-deps/libgweather.bst \u2014 candidate for a follow-up mapping pass."
+    },
+    {
+      "name": "libgxps",
+      "reason": "GNOME-owned module outside issue #201's initial core/sdk mapping scope; gnome-build-meta builds it as elements/core-deps/libgxps.bst \u2014 candidate for a follow-up mapping pass."
     },
     {
       "name": "libmanette",
@@ -153,6 +169,10 @@
     {
       "name": "tecla",
       "reason": "GNOME-owned module outside issue #201's initial core/sdk mapping scope; gnome-build-meta builds it as elements/core/tecla.bst \u2014 candidate for a follow-up mapping pass."
+    },
+    {
+      "name": "totem-pl-parser",
+      "reason": "GNOME-owned module outside issue #201's initial core/sdk mapping scope; gnome-build-meta builds it as elements/core-deps/totem-pl-parser.bst \u2014 candidate for a follow-up mapping pass."
     },
     {
       "name": "xdg-user-dirs-gtk",
