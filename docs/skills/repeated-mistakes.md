@@ -108,6 +108,13 @@ entry, build-root pin and Hummingbird repo) of every build in it
 digest moved, plus their direct BuildRequires dependents. A change to
 anything that decides how a package is built belongs in that digest.
 
+The first labelled image learned the state of every package it did not
+rebuild from the older NEVR comparison, and libgphoto2 slipped through: #269
+changed its recipe (dropping lockdev) at the same Release, the run that would
+have built it was cancelled, and the label then recorded the new recipe as
+published. Utah found `liblockdev.so.1` still required. Bump Release when a
+recipe change changes the binaries; the label catches everything after it.
+
 ## 5. A global exclusion fights a local dependency
 
 **What happened.** The ICU 77 versus 78 split was fought across fifteen
@@ -354,11 +361,25 @@ Furthermore, `cups-filters` only weakly recommends `braille-printer-app`, which
 carries heavy dependencies (`liblouis`, `ImageMagick`, etc.) not in the
 Hummingbird base.
 
+The first import then built against Fedora 44's `ghostscript` and `libexif`,
+which the publish gate's Hummingbird-only transaction cannot see: `libppd`
+Requires `ghostscript >= 10.0.0`, and `libcupsfilters` links `libexif.so.12`.
+
 **Rule.** When importing cups-filters 2.x or cups-browsed into the factory,
-import `libcupsfilters` (stage 0), `libppd` (stage 1, depends on
-libcupsfilters), and `cups-filters` / `cups-browsed` (stage 2, depending on both
-libraries). Do not pull `braille-printer-app` into the core printing closure
-unless Braille printing is explicitly required.
+import `ghostscript` (stage 1) and `libexif` (stage 0) as well, then
+`libcupsfilters` (stage 2, BuildRequires both), `libppd` (stage 3, depends on
+libcupsfilters and ghostscript), and `cups-filters` / `cups-browsed` (stage 4,
+depending on both libraries). The factory's ghostscript uses its bundled
+jbig2dec, ijs and `Resource/` fonts and CMaps and builds without libpaper, gtk,
+X11 and dvipdf, because their runtime providers are in neither Hummingbird nor
+the factory; the spec's bconds say why each one is off. Do not pull
+`braille-printer-app` into the core printing closure unless Braille printing
+is explicitly required.
+
+A runtime library whose Fedora source no upstream serves cannot be imported:
+`lockdev` is a 2011 alioth snapshot pinned by MD5, so `libgphoto2` builds with
+`--disable-lockdev --disable-ttylock` instead. This is the same call ffmpeg
+made for libqrencode and openal in #249.
 
 ## 18. Broad credential or tool exposure across build matrix jobs
 
@@ -393,6 +414,10 @@ image, `cosign verify` the digest actually pulled -- never the mutable tag,
 which can move again after the check -- against this same workflow's own
 keyless OIDC identity. `latest` is only ever published from `refs/heads/main`;
 a branch tag is only ever published by this workflow running on that branch.
+(Since publication moved into the reusable `publish-repository.yml`, which
+signs as itself, the check admits exactly two workflow files -- that one and
+`rebuild-rpms.yml`, which signed every earlier image -- by an anchored
+pattern, still at the one ref that matched.)
 Pin `--certificate-identity` to whichever ref actually matched, not a regex
 wide enough to accept either -- a regex scoped to `main` alone breaks every
 branch-tag seed, since those are signed under their own ref. `cosign verify`

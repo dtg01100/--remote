@@ -53,6 +53,11 @@ CHUNK = 250
 # The job chain in rebuild-rpms.yml is fourteen deep and GitHub needs it static.
 STAGES = 14
 
+# rebuild-rpms.yml publishes after each of the first four waves that has
+# later waves to come (publish0..publish3); the final publication covers the
+# rest. See the comment above publish0 there.
+EARLY_PUBLICATIONS = 4
+
 
 def published_from_primary(primary: bytes) -> dict[str, tuple[str, str]]:
     """Map source package name -> (version, release) from repodata primary.xml.
@@ -200,6 +205,10 @@ def provides_by_source(primary: bytes) -> dict[str, set[str]]:
     return result
 
 
+# A shared-library capability: libavcodec.so.62()(64bit) -> base libavcodec.so
+SONAME = re.compile(r"^(?P<base>[^()\s]+?\.so)\.(?P<version>[^()\s]+)(?:\(.*\))*$")
+
+
 def stale_from_primary(primary: bytes, external: set[str]) -> dict[str, set[str]]:
     """Source name -> the Requires of its published binaries that nothing provides.
 
@@ -224,8 +233,22 @@ def stale_from_primary(primary: bytes, external: set[str]) -> dict[str, set[str]
     dependencies in parentheses, which need dnf to evaluate; and file paths,
     because primary.xml lists only a subset of files and the full list lives
     in filelists.xml, which is not read here.
+
+    And only a *moved* soname counts: libavcodec.so.62 unsatisfied while
+    something provides libavcodec.so.63. That is what a rebuild repairs.
+    A Requires nothing provides at any version -- vala, cvs, mingw32(...),
+    pkgconfig(xproto) from a -devel or MinGW subpackage, all of which
+    Fedora and not the consumer's repositories supply -- is not repaired by
+    rebuilding, so calling it stale rebuilt the same 80 packages, and their
+    dependents, on every run: 215 of 397 for a one-package change. Whether
+    the consumer can install what it needs is the Hummingbird-only
+    transaction's question, and it still asks it.
     """
     provided = provides_from_primary(primary) | external
+    moved_from = {
+        match["base"] for capability in provided
+        if (match := SONAME.match(capability))
+    }
     stale: dict[str, set[str]] = {}
     root = ElementTree.fromstring(primary)
     for package in root.iter(f"{{{COMMON_NS}}}package"):
@@ -242,6 +265,9 @@ def stale_from_primary(primary: bytes, external: set[str]) -> dict[str, set[str]
                 or capability.startswith(("rpmlib(", "(", "/"))
                 or capability in provided
             ):
+                continue
+            match = SONAME.match(capability)
+            if match is None or match["base"] not in moved_from:
                 continue
             stale.setdefault(source, set()).add(capability)
     return stale
@@ -475,6 +501,19 @@ def stage_outputs(build: list[dict], waves: dict[str, int] | None = None) -> dic
         outputs[f"stage{stage}_chunks"] = json.dumps(
             [json.dumps(chunk) for chunk in chunks]
         )
+    # What an early publication after wave k covers, and which waves get one:
+    # every non-empty wave that has a later non-empty wave, because the final
+    # publication covers the last one anyway. rebuild-rpms.yml publishes each
+    # of those waves' successes as it finishes (publish-repository.yml).
+    occupied = [stage for stage in range(STAGES)
+                if json.loads(outputs[f"stage{stage}"])]
+    for stage in range(EARLY_PUBLICATIONS):
+        outputs[f"through{stage}"] = json.dumps(
+            [entry["name"] for entry in build if wave(entry) <= stage]
+        )
+    outputs["early_waves"] = json.dumps(
+        [str(stage) for stage in occupied[:-1] if stage < EARLY_PUBLICATIONS]
+    )
     return outputs
 
 

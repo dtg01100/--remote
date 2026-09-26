@@ -2,6 +2,27 @@
   "schema": 1,
   "packages": [
     {
+      "name": "ghostscript",
+      "version": "10.08.0",
+      "url": "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs10080/ghostscript-10.08.0.tar.xz",
+      "filename": "ghostscript-10.08.0.tar.xz",
+      "sha512": "8006e2a32d03759a905b9548bdd83d4563173041006750e17e428b9eea24ad519aa4452ceecd7c073d3c420a68bf1b07ccc9e0533b1a05935f6b39ea8d9ce875",
+      "stage": 1,
+      "fallback_urls": [
+        "https://src.fedoraproject.org/repo/pkgs/rpms/ghostscript/ghostscript-10.08.0.tar.xz/sha512/8006e2a32d03759a905b9548bdd83d4563173041006750e17e428b9eea24ad519aa4452ceecd7c073d3c420a68bf1b07ccc9e0533b1a05935f6b39ea8d9ce875/ghostscript-10.08.0.tar.xz"
+      ]
+    },
+    {
+      "name": "libexif",
+      "version": "0.6.26",
+      "url": "https://github.com/libexif/libexif/releases/download/v0.6.26/libexif-0.6.26.tar.bz2",
+      "filename": "libexif-0.6.26.tar.bz2",
+      "sha512": "e99d2de0566284d98547915d6661effd18a51fe1687d923e57bd2250551d3ee73587f7c8386d926e7ff21df06887bedae3e10b4441bf544f04f559c381e258fe",
+      "fallback_urls": [
+        "https://src.fedoraproject.org/repo/pkgs/rpms/libexif/libexif-0.6.26.tar.bz2/sha512/e99d2de0566284d98547915d6661effd18a51fe1687d923e57bd2250551d3ee73587f7c8386d926e7ff21df06887bedae3e10b4441bf544f04f559c381e258fe/libexif-0.6.26.tar.bz2"
+      ]
+    },
+    {
       "name": "libass",
       "version": "0.17.5",
       "url": "https://github.com/libass/libass/releases/download/0.17.5/libass-0.17.5.tar.xz",
@@ -91,6 +112,16 @@
       "stage": 1,
       "fallback_urls": [
         "https://src.fedoraproject.org/repo/pkgs/rpms/osinfo-db-tools/osinfo-db-tools-1.12.0.tar.xz/sha512/3c5664036d161d428eaeef3d259cf96050313d4465d4a1121000e2d1f92266830bc02a124c8dcba28f2ab5e78cf6007d68c9fb89138f49e1bce9d8ea0f63d90a/osinfo-db-tools-1.12.0.tar.xz"
+      ]
+    },
+    {
+      "name": "pdfio",
+      "version": "1.6.5",
+      "url": "https://github.com/michaelrsweet/pdfio/releases/download/v1.6.5/pdfio-1.6.5.tar.gz",
+      "filename": "pdfio-1.6.5.tar.gz",
+      "sha512": "f218777c8d9970984295c9c94524a6c456fb03322f729b14218409f87885afeba7a37ca9b1e2a4105aba3349f558bb1083f1503dbd9cc1ef4ce34a42724898c7",
+      "fallback_urls": [
+        "https://src.fedoraproject.org/repo/pkgs/rpms/pdfio/pdfio-1.6.5.tar.gz/sha512/f218777c8d9970984295c9c94524a6c456fb03322f729b14218409f87885afeba7a37ca9b1e2a4105aba3349f558bb1083f1503dbd9cc1ef4ce34a42724898c7/pdfio-1.6.5.tar.gz"
       ]
     },
     {
@@ -280,7 +311,7 @@
     {
       "name": "cups-browsed",
       "version": "2.1.1",
-      "stage": 2,
+      "stage": 4,
       "url": "https://github.com/OpenPrinting/cups-browsed/releases/download/2.1.1/cups-browsed-2.1.1.tar.gz",
       "filename": "cups-browsed-2.1.1.tar.gz",
       "sha512": "e0c611f9d43acd86561c2cb7cd23f27846620f8a96ce41dc8e97459d85e993aa501f9f35de411a5437bde92fdea74514a506942496ea2623378c6ab383d6aa8f"
@@ -288,7 +319,7 @@
     {
       "name": "cups-filters",
       "version": "2.0.1",
-      "stage": 2,
+      "stage": 4,
       "url": "https://github.com/OpenPrinting/cups-filters/releases/download/2.0.1/cups-filters-2.0.1.tar.gz",
       "filename": "cups-filters-2.0.1.tar.gz",
       "sha512": "b5d7b8f5a89a6a6bba0e861dd3c3263195be75996d22129d123f325f6bff74fbabf22f2ee2d953908ffb8294d825af5568af6695896c76ef4082ae98cd19c42c"
@@ -353,8 +384,7 @@
       "version": "2.8.19",
       "url": "https://src.fedoraproject.org/repo/pkgs/rpms/enchant2/enchant-2.8.19.tar.gz/sha512/0aebd255d589637d0947f8832a194457f561e6000fbfdcff57e487f85203b5ddc77458d1eaad84fd8765052264ff2d9b1dbaf5fbce0ca194aa097f4944b302db/enchant-2.8.19.tar.gz",
       "filename": "enchant-2.8.19.tar.gz",
-      "sha512": "0aebd255d589637d0947f8832a194457f561e6000fbfdcff57e487f85203b5ddc77458d1eaad84fd8765052264ff2d9b1dbaf5fbce0ca194aa097f4944b302db",
-      "buildroot_icu77": true
+      "sha512": "0aebd255d589637d0947f8832a194457f561e6000fbfdcff57e487f85203b5ddc77458d1eaad84fd8765052264ff2d9b1dbaf5fbce0ca194aa097f4944b302db"
     },
     {
       "name": "evolution-data-server",
@@ -1396,7 +1426,7 @@
     {
       "name": "libcupsfilters",
       "version": "2.2.1",
-      "stage": 0,
+      "stage": 2,
       "url": "https://github.com/OpenPrinting/libcupsfilters/releases/download/2.2.1/libcupsfilters-2.2.1.tar.gz",
       "filename": "libcupsfilters-2.2.1.tar.gz",
       "sha512": "9d4b34cd56fa9d6ad1307779458e231e5474fc046edb298d13ba9037574ed91a1ed2f13d479ab0028e1d213dfba867917c503cb926b9e605f74a29037ac026f0"
@@ -1736,7 +1766,7 @@
     {
       "name": "libppd",
       "version": "2.1.1",
-      "stage": 1,
+      "stage": 3,
       "url": "https://github.com/OpenPrinting/libppd/releases/download/2.1.1/libppd-2.1.1.tar.gz",
       "filename": "libppd-2.1.1.tar.gz",
       "sha512": "401b91b96d8a0297d1c39c328037459d3ba7a9f78e011f6abc9c7d29f1c2677e001295a58642d94c2786f43116643f59205a6a29490ae40276871f59a82942e3"
@@ -2839,12 +2869,12 @@
     },
     {
       "name": "xdg-terminal-exec",
-      "version": "0.14.2",
-      "url": "https://github.com/Vladimir-csp/xdg-terminal-exec/archive/v0.14.2/xdg-terminal-exec-0.14.2.tar.gz",
-      "filename": "xdg-terminal-exec-0.14.2.tar.gz",
-      "sha512": "b7bbfbc3dd96952b389b28d68440e9e265ea08f8af0e700f40305c8f4277ffd4d49bacb2b41af41c9bce5451d16be56edb5eecaf62add3692181778dd119d315",
+      "version": "0.14.3",
+      "url": "https://github.com/Vladimir-csp/xdg-terminal-exec/archive/v0.14.3/xdg-terminal-exec-0.14.3.tar.gz",
+      "filename": "xdg-terminal-exec-0.14.3.tar.gz",
+      "sha512": "65f1b633571b782cfffeac35890da372747e805d6dde659d68c568e9fd0e9a556bd792a80c6e8fc8b8fd4361adba9a761686c6daf9e94aa5512ebfe1f352ac70",
       "fallback_urls": [
-        "https://src.fedoraproject.org/repo/pkgs/rpms/xdg-terminal-exec/xdg-terminal-exec-0.14.2.tar.gz/sha512/b7bbfbc3dd96952b389b28d68440e9e265ea08f8af0e700f40305c8f4277ffd4d49bacb2b41af41c9bce5451d16be56edb5eecaf62add3692181778dd119d315/xdg-terminal-exec-0.14.2.tar.gz"
+        "https://src.fedoraproject.org/repo/pkgs/rpms/xdg-terminal-exec/xdg-terminal-exec-0.14.3.tar.gz/sha512/65f1b633571b782cfffeac35890da372747e805d6dde659d68c568e9fd0e9a556bd792a80c6e8fc8b8fd4361adba9a761686c6daf9e94aa5512ebfe1f352ac70/xdg-terminal-exec-0.14.3.tar.gz"
       ]
     },
     {
@@ -3160,7 +3190,8 @@
       "fallback_urls": [
         "https://downloads.sourceforge.net/gphoto/libgphoto2-2.5.33.tar.bz2",
         "https://src.fedoraproject.org/repo/pkgs/rpms/libgphoto2/libgphoto2-2.5.33.tar.bz2/sha512/5a987fb712c704bbb276d4ff5319d96b9096a6e4be303d38f97e0eafc01b47def93ab4b6d3acb76cb7597edd846d2dac4b0227a3e8d2ec8634f5e52de69a6da4/libgphoto2-2.5.33.tar.bz2"
-      ]
+      ],
+      "stage": 1
     },
     {
       "name": "libmbim",

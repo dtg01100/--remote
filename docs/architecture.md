@@ -78,7 +78,7 @@ a PR or merge check and its output is not published. Its `discover` job emits th
 matrix at 256 jobs and expands a larger one to nothing rather than rejecting
 it, so once the monorepo passed 256 packages the pilot failed on every run with
 a green `discover` above an `srpm` job that never existed. The `discover` guard
-asserts the package list is non-empty, which a list of 397 satisfies while
+asserts the package list is non-empty, which a list of 400 satisfies while
 still producing no jobs. Each matrix job uses `tools/source_pipeline.py` to fetch
 and verify the configured sources and stage them beside the spec, then runs
 `packit srpm --preserve-spec`. It uploads one SRPM artifact and stops there:
@@ -130,18 +130,18 @@ Two consequences worth stating plainly:
   precondition for Copr builds, not evidence of them. The only thing exercising
   Packit is the pilot workflow.
 
-The root Packit configuration and the source lock both cover all 397 recipes:
+The root Packit configuration and the source lock both cover all 400 recipes:
 
 | check | result |
 | --- | ---: |
-| `ls -d packages/*/ \| wc -l` | `397` |
-| entries under `.packit.yaml:packages` | `397` |
-| entries under `config/upstream-sources.json:packages` | `397` |
+| `ls -d packages/*/ \| wc -l` | `400` |
+| entries under `.packit.yaml:packages` | `400` |
+| entries under `config/upstream-sources.json:packages` | `400` |
 
 `python3 tools/validate.py` reports:
 
 ```text
-validated 397 source RPMs
+validated 400 source RPMs
 ```
 
 ## Current binary pipeline
@@ -160,7 +160,7 @@ validated 397 source RPMs
 | `publish` | Seeds from the verified previous image, replaces the RPMs of each source package this run built (and did not lose precedence) by source name, removes the bootstrap RPM, creates and signs repository metadata, validates the Hummingbird-only transaction over the whole candidate, and publishes a GHCR OCI image that is both cosign-signed and provenance-attested. A failed package keeps its previous build. |
 | `report` | Runs whether or not publish did. Names every selected package that did not publish -- from the run's own artifact list -- in the job summary, and on `main` opens, updates or closes the tracking issue *Factory: packages failing on main*. |
 
-87 of 397 packages carry a hand-assigned `stage` in
+89 of 400 packages carry a hand-assigned `stage` in
 `config/upstream-sources.json`. Since waves are solved from BuildRequires it is
 consulted only between members of one BuildRequires cycle, to decide which
 builds first -- `malcontent-bootstrap` before `flatpak` before `malcontent`.
@@ -206,6 +206,29 @@ the tag does not move, however many packages built. `tools/publish_gate.py`
 decides the replacement (`assemble`), models the gate (`publish_allowed`) and
 checks the publish job against both; `tests/test_incremental_publish.py`
 drives them through each failure mode.
+
+Publication happens as waves finish, not once at the end. After each wave
+that has later waves still to come, `rebuild-rpms.yml` calls
+`publish-repository.yml` for waves 0..k (`publish0`..`publish3`, the first four waves), and a final
+call covers every wave. Each publication seeds from the image the previous
+one pushed, which the witness check accepts because it carries this run's id,
+and each is gated on its own Hummingbird-only transaction. An early one may
+fail it -- a library whose soname moved publishes before its consumers are
+rebuilt -- and then publishes nothing; only the final one fails the run. So a
+one-line fix to a wave-0 library publishes when wave 0 finishes, not when the
+slowest package in the same run does.
+
+A second, advisory check follows it: what Utah actually installs. The gate's
+contract is about 78 packages; Utah installs about 120 -- Bluefin's
+`[fedora]` and `[fedora_v44]` plus Utah's `[gnome]`, `[parity]`, `[hardware]`,
+`[services]` and `[build]`, minus `[unavailable]`. `tools/utah_install_set.py`
+computes that set with Utah's own `scripts/install-packages.py`, fetched from
+Utah's `main` with its repository files, and resolves it in the Hummingbird
+base image against the candidate plus Hummingbird, naming every package that
+does not resolve. It warns rather than blocks, so one gap cannot freeze every
+other package: the job summary lists them, and on `main` the report job keeps
+one *Utah install set: <package> does not resolve* issue per package, closing
+each on the first run in which it resolves.
 
 It used to be atomic: one failed package held back every other one, and over
 four weeks 3 of 117 full runs published while one flaky `fish` test blocked

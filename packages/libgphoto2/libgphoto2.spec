@@ -5,7 +5,7 @@
 
 Name:           libgphoto2
 Version:        2.5.33
-Release:        4%{?dist}
+Release:        5%{?dist}
 Summary:        Library for accessing digital cameras
 License:        GPL-2.0-only AND GPL-2.0-or-later AND LGPL-2.0-only AND LGPL-2.0-or-later AND LGPL-2.1-or-later AND LGPL-3.0-or-later AND BSD-3-Clause AND IJG-short AND (MIT OR Unlicense)
 URL:            http://www.gphoto.org/
@@ -34,9 +34,14 @@ BuildRequires:  pkgconfig(libexif)
 # -----------------------------------
 # libgphoto2_port
 # -----------------------------------
-%if !0%{?flatpak}
-BuildRequires:  lockdev-devel
-%endif
+# Factory: no lockdev-devel, and --disable-lockdev --disable-ttylock below.
+# liblockdev.so.1 is in neither Hummingbird nor this factory, and lockdev
+# cannot be imported with a verified source: Fedora builds a 2011 alioth
+# nightly snapshot (lockdev-1.0.4.20111007git) pinned by MD5 only, alioth is
+# gone, and no upstream serves those bytes. lockdev only locks legacy RS-232
+# camera ports; USB and PTP/IP cameras never touch it. Fedora's flatpak build
+# drops it the same way. The configure flags keep the build from linking the
+# Fedora 44 lockdev-devel if something else drags it into the build root.
 BuildRequires:  pkgconfig(libusb-1.0)
 # -----------------------------------
 
@@ -83,6 +88,8 @@ autoreconf -if
 %endif
     --disable-static             \
     --disable-rpath              \
+    --disable-lockdev            \
+    --disable-ttylock            \
     %{nil}
 
 # Don't use rpath!
@@ -160,6 +167,11 @@ rm -rf %{buildroot}%{_datadir}/libgphoto2_port/*/vcamera/
 %{_mandir}/man3/%{name}_port.3*
 
 %changelog
+* Sat Sep 26 2026 Utah package factory <noreply@anthropic.com> - 2.5.33-5
+- Rebuild without lockdev (--disable-lockdev --disable-ttylock) and against
+  the factory libexif; the recipe changed in #269 at the same release, so the
+  published 2.5.33-4 still required liblockdev.so.1
+
 * Thu Sep 10 2026 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 2.5.33-4
 - Rebuilt for libxml-2.5.4
 
