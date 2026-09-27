@@ -178,3 +178,9 @@ python3 -m pytest tests/test_audit_gnome_build_meta.py -q
 ```
 
 `just check` / `just test` gate the change in CI (factory contract + full suite).
+
+Tests that build a throwaway gnome-build-meta checkout must commit with
+`git commit --no-verify` and `check=True`. A contributor's global
+`core.hooksPath` (for example a Conventional Commits `commit-msg` hook) rejects
+messages like `init`, and an unchecked commit fails later as a confusing
+`rev-parse HEAD` error instead of at the commit.

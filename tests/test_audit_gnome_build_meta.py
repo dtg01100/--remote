@@ -467,7 +467,7 @@ class FailClosedTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(root), "config", "user.name", "t"], check=True)
             (root / "element.bst").write_text("kind: meson\n")
             subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
-            subprocess.run(["git", "-C", str(root), "commit", "-qm", "pin"], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "--no-verify", "-qm", "pin"], check=True)
             head = subprocess.run(
                 ["git", "-C", str(root), "rev-parse", "HEAD"],
                 capture_output=True, text=True, check=True,
@@ -530,7 +530,7 @@ class FailClosedTests(unittest.TestCase):
             _sp.run(["git", "-C", str(root), "config", "user.name", "test"], capture_output=True)
             (root / "dummy").write_text("x")
             _sp.run(["git", "-C", str(root), "add", "."], capture_output=True)
-            _sp.run(["git", "-C", str(root), "commit", "-m", "init"], capture_output=True)
+            _sp.run(["git", "-C", str(root), "commit", "--no-verify", "-m", "init"], capture_output=True, check=True)
             # Now init repo at the pinned commit would fail verification, so use --no-verify
             pin = {
                 "schema": 1,
@@ -571,7 +571,7 @@ class FailClosedTests(unittest.TestCase):
             (root / "elements").mkdir(parents=True)
             (root / "dummy").write_text("x")
             _sp.run(["git", "-C", str(root), "add", "."], capture_output=True)
-            _sp.run(["git", "-C", str(root), "commit", "-m", "init"], capture_output=True)
+            _sp.run(["git", "-C", str(root), "commit", "--no-verify", "-m", "init"], capture_output=True, check=True)
             head = _sp.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
             pin = {
                 "schema": 1,
