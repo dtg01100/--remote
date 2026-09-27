@@ -26,6 +26,7 @@ Both are indexed below. A skill that exists but is not listed here fails
 | Change package-cache keys, eligibility, restore/publish ordering, or cache storage | [`skills/package-build-cache.md`](skills/package-build-cache.md) |
 | Import, configure, or verify font package recipes | [`skills/font-package-recipes.md`](skills/font-package-recipes.md) |
 | Import a terminal emulator (ptyxis, gnome-console, kgx) or its vte291 stack | [`skills/terminal-emulator-recipes.md`](skills/terminal-emulator-recipes.md) |
+| Carry or verify GNOME Shell theme fixes | [`skills/gnome-shell-theme-patches.md`](skills/gnome-shell-theme-patches.md) |
 
 ## Reference docs (load on demand)
 

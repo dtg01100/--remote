@@ -35,6 +35,10 @@ Source0:        https://download.gnome.org/sources/%{name}/%{gnome_major_version
 # Replace Epiphany with Firefox in the default favourite apps list
 Patch: gnome-shell-favourite-apps-firefox.patch
 
+# Reserve submit-button space on the password entry itself, including its reveal icon.
+# https://github.com/projectbluefin/utah-packages/issues/289
+Patch: gnome-shell-lockscreen-entry-padding.patch
+
 BuildRequires:  pkgconfig(bash-completion)
 BuildRequires:  gcc
 BuildRequires:  meson

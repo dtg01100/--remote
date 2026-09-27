@@ -1,0 +1,20 @@
+Subject: [PATCH] theme: reserve submit-button space on the password entry
+
+The nested direction selectors target descendants without the parent
+selector, leaving the password reveal icon underneath the submit button.
+Apply the padding to the entry itself in both text directions.
+
+See https://github.com/projectbluefin/utah-packages/issues/289
+
+diff --git a/data/theme/gnome-shell-sass/widgets/_login-lock.scss b/data/theme/gnome-shell-sass/widgets/_login-lock.scss
+--- a/data/theme/gnome-shell-sass/widgets/_login-lock.scss
++++ b/data/theme/gnome-shell-sass/widgets/_login-lock.scss
+@@ -32,6 +32,6 @@
+   .login-dialog-prompt-entry {
+     border-radius: $base_border_radius * 1.5;
+     // Make room for button-well inside entry
+-    :ltr { padding-right: 2.5em; }
+-    :rtl { padding-left: 2.5em; }
++    &:ltr { padding-right: 2.5em; }
++    &:rtl { padding-left: 2.5em; }
+   }
