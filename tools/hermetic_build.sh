@@ -23,6 +23,12 @@
 # /work/result.
 set -euo pipefail
 phase=${1:?lock or build}
+# mock keeps upstream build code inside its chroot, away from /work, but the
+# credential file setup-sccache leaves there is only for mozjs140 on the
+# container lane. Drop it here too, so a lane change cannot expose it.
+if [ "${PACKAGE:-}" != mozjs140 ]; then
+  rm -f /work/tools/sccache.env /work/tools/sccache
+fi
 H=/work/hermetic
 mkdir -p "$H" /work/cache /work/result /work/reports
 
