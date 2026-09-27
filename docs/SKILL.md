@@ -26,6 +26,7 @@ Both are indexed below. A skill that exists but is not listed here fails
 | Change package-cache keys, eligibility, restore/publish ordering, or cache storage | [`skills/package-build-cache.md`](skills/package-build-cache.md) |
 | Import, configure, or verify font package recipes | [`skills/font-package-recipes.md`](skills/font-package-recipes.md) |
 | Audit or configure upstream release feeds and lookaside locks | [`skills/upstream-source-feeds.md`](skills/upstream-source-feeds.md) |
+| Carry or verify GNOME Shell theme fixes | [`skills/gnome-shell-theme-patches.md`](skills/gnome-shell-theme-patches.md) |
 
 ## Reference docs (load on demand)
 

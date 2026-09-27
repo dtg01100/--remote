@@ -10,6 +10,15 @@
 # which expands build-stage.yml 84 times, then hit GitHub's "Maximum object
 # size exceeded" as soon as anything was added. The script is unchanged; its
 # old no-apostrophe rule no longer applies but its text still honours it.
+# setup-sccache writes the runner ACTIONS_RUNTIME_TOKEN into
+# /work/tools/sccache.env for the one spec that uses the Actions cache,
+# mozjs140. Every other package runs its upstream %prep/%build code right
+# here with /work mounted read-write, and a token that can rewrite this
+# run artifacts -- the RPMs the publish job signs -- must not be readable
+# by that code. Drop it before anything from the recipe runs.
+if [ "${PACKAGE:-}" != mozjs140 ]; then
+  rm -f /work/tools/sccache.env /work/tools/sccache
+fi
 # The fedora:rawhide image ships fedora-cisco-openh264 enabled, but
 # its packages are signed with Cisco key, which the image does not
 # trust -- so any builddep graph reaching gstreamer/pipewire dies on
