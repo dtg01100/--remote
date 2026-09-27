@@ -20,7 +20,7 @@ BuildRequires:  pkgconfig(libavfilter)
 BuildRequires:  pkgconfig(libjpeg)
 BuildRequires:  pkgconfig(libpng)
 
-Requires:       %{name}-libs%{?isa} = %{version}-%{release}
+Requires:       %{name}-libs%{?_isa} = %{version}-%{release}
 
 %description
 FFmpegthumbnailer is a lightweight video thumbnailer that can be used by file
@@ -36,7 +36,7 @@ This package contains the library for %{name}.
 
 %package        devel
 Summary:        Development files for %{name}
-Requires:       %{name}-libs%{?isa} = %{version}-%{release}
+Requires:       %{name}-libs%{?_isa} = %{version}-%{release}
 
 %description    devel
 This package contains the development files for %{name}.
