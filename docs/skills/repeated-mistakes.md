@@ -442,6 +442,25 @@ planning time.
 across git ranges, such as `git show ${base_sha}:...`, remain raw JSON.) The lock
 file is parsed and validated in exactly one place.
 
+## 21. `continue-on-error` on a matrix job leaves a red check run on the Checks API
+
+**What happened.** The canary ran `pass4` with `inject_failure: '["vulkan-loader"]'`,
+and `build-stage.yml` implemented that with `continue-on-error: true` on the
+`build` matrix job, exiting 1 on purpose in the job step. While `continue-on-error`
+kept the overall workflow run green, GitHub Actions still reported
+`conclusion: failure` to the Checks API for that matrix job against the commit
+head. Every PR touching the pipeline paths had its Checks API status marked
+`UNSTABLE` by this permanent red check
+(`pass4 / rebuild1 (["vulkan-loader"]) / build (vulkan-loader)`), preventing
+automated merge gates from passing (issue #285).
+
+**Rule.** Do not use `continue-on-error` with an intentional job failure to
+simulate a failed package. The proof that a failed package preserves its previous
+published build and is reported depends on missing build artifacts
+(`publish_gate.py report`), not a failed job conclusion. Drop the injected
+package from the matrix before the build job runs (via a planning step) so no
+artifact is produced and no red check run is recorded against the commit.
+
 ## Quick checks before pushing a fix
 
 - [ ] Does `git log --oneline -- <file>` show this file being fixed for the

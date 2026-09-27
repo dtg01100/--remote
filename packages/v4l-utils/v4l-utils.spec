@@ -183,6 +183,16 @@ Utilities for Infrared receivers and transmitters using RC core.
 %install
 %meson_install
 
+# Upstream installs the udevd drop-in below only when the build root's own
+# systemd-udevd.service carries a SystemCallFilter (meson greps for it), and
+# a mock root has no systemd-udev, so the file the BPF decoders need at
+# runtime silently goes missing. Install it ourselves: the target always has
+# the filter, and the files list below must not depend on the build root.
+%if %{with dvb}
+install -Dpm 0644 utils/keytable/50-rc_keymap.conf \
+  $RPM_BUILD_ROOT%{_unitdir}/systemd-udevd.service.d/50-rc_keymap.conf
+%endif
+
 find $RPM_BUILD_ROOT -name '*.la' -delete
 # Driver removed from upstream
 rm -f $RPM_BUILD_ROOT%{_bindir}/decode_tm6000
@@ -280,10 +290,11 @@ desktop-file-validate $RPM_BUILD_ROOT%{_datadir}/applications/qvidcap.desktop
 %files -n rc-tools
 %dir %{_sysconfdir}/rc_keymaps
 %config(noreplace) %{_sysconfdir}/rc_maps.cfg
-# 1.32.0 added a udevd drop-in that raises the service's memory limit so
-# ir-keytable can load a keymap. Fedora's spec does not package it, so the
-# build stops on an unpackaged file; it belongs with the tool that needs it.
-%{_prefix}/lib/systemd/system/systemd-udevd.service.d/50-rc_keymap.conf
+# 1.32.0 added a udevd drop-in that lets udevd call bpf(2) so ir-keytable
+# can load a keymap. Fedora's spec does not package it, so the build stops
+# on an unpackaged file; it belongs with the tool that needs it. The install
+# section puts it in place whatever the build root looks like.
+%{_unitdir}/systemd-udevd.service.d/50-rc_keymap.conf
 %{_udevrulesdir}/70-infrared.rules
 %{_udevrulesdir}/../rc_keymaps/*
 %{_bindir}/ir-ctl
