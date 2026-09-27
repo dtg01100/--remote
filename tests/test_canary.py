@@ -13,6 +13,7 @@ from tools import canary
 
 ROOT = Path(__file__).resolve().parent.parent
 CANARY = ROOT / ".github" / "workflows" / "canary.yml"
+BUILD_STAGE = ROOT / ".github" / "workflows" / "build-stage.yml"
 
 
 def job(name: str, build: str | None, restore: str | None, conclusion="success") -> dict:
@@ -350,6 +351,56 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(len(prefixes), len(passes))
         salts = {self.jobs[n]["with"]["cache_salt"] for n in passes}
         self.assertEqual(salts, {"${{ needs.changes.outputs.salt }}"})
+
+
+class BuildStageShapeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.workflow = yaml.safe_load(BUILD_STAGE.read_text())
+        cls.jobs = cls.workflow["jobs"]
+
+    def test_plan_filters_injected_failures_before_build_matrix(self) -> None:
+        self.assertIn("plan", self.jobs)
+        plan_outputs = self.jobs["plan"]["outputs"]
+        self.assertIn("packages", plan_outputs)
+        build = self.jobs["build"]
+        self.assertEqual(build.get("needs"), "plan")
+        self.assertIn("needs.plan.outputs.packages != '[]'", build.get("if", ""))
+        self.assertIn("needs.plan.outputs.packages", build["strategy"]["matrix"]["package"])
+        self.assertNotIn("continue-on-error", build)
+        for step in build["steps"]:
+            self.assertNotIn("Fail this package on purpose for the canary", step.get("name", ""))
+
+    def test_filter_drops_injected_packages(self) -> None:
+        import subprocess
+
+        filter_cmd = (
+            'jq -c --argjson drop "${INJECT:-[]}" '
+            "'map(select(. as $p | $drop | index($p) | not))' <<<\"$PACKAGES\""
+        )
+
+        def run_filter(packages: str, inject: str) -> list[str]:
+            res = subprocess.run(
+                ["bash", "-euo", "pipefail", "-c", filter_cmd],
+                env={"PACKAGES": packages, "INJECT": inject},
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return json.loads(res.stdout)
+
+        self.assertEqual(
+            run_filter('["libical", "vulkan-headers", "vulkan-loader"]', ""),
+            ["libical", "vulkan-headers", "vulkan-loader"],
+        )
+        self.assertEqual(
+            run_filter('["libical", "vulkan-headers", "vulkan-loader"]', '["vulkan-loader"]'),
+            ["libical", "vulkan-headers"],
+        )
+        self.assertEqual(
+            run_filter('["vulkan-loader"]', '["vulkan-loader"]'),
+            [],
+        )
 
 
 if __name__ == "__main__":

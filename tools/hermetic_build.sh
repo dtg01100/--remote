@@ -15,7 +15,8 @@
 # the lock, so a cache hit skips the offline build entirely.
 #
 # Environment: PACKAGE, FACTORY_REPO, DIST_BUMP, BUILDROOT_ICU77,
-# BOOTSTRAP_IMAGE (the pinned build root, from config/buildroot-image).
+# BOOTSTRAP_IMAGE (the pinned build root, from config/buildroot-image),
+# HERMETIC_NET_ATTEMPTS (how many times each online step may run, default 3).
 #
 # Outputs under /work/hermetic: mock.cfg and mock.cfg.sha256, the lockfile
 # lock/buildroot_lock.json with the SRPM mock built beside it, repo/ (build
@@ -23,8 +24,46 @@
 # /work/result.
 set -euo pipefail
 phase=${1:?lock or build}
+# mock keeps upstream build code inside its chroot, away from /work, but the
+# credential file setup-sccache leaves there is only for mozjs140 on the
+# container lane. Drop it here too, so a lane change cannot expose it.
+if [ "${PACKAGE:-}" != mozjs140 ]; then
+  rm -f /work/tools/sccache.env /work/tools/sccache
+fi
 H=/work/hermetic
 mkdir -p "$H" /work/cache /work/result /work/reports
+# Only two steps in this lane reach the network: mock resolving the root
+# into the lock, and mock-hermetic-repo fetching the 200-300 RPMs the lock
+# names. Both fetch from Hummingbird's repositories, and a single reset or
+# short read there took down mdadm, setxkbmap and dmidecode in one run
+# (#287) with nothing wrong in the package. Retry them; the offline build
+# itself is never retried here, its %check retry is separate and deliberate.
+NET_ATTEMPTS=${HERMETIC_NET_ATTEMPTS:-3}
+NET_RETRY_PAUSE=15
+
+# Run one online step up to NET_ATTEMPTS times: `online <label> <cleanup>
+# <command...>`. cleanup runs before every retry so a half-fetched result
+# never counts as a whole one.
+online() {
+  label=$1 cleanup=$2
+  shift 2
+  attempt=1
+  while true; do
+    status=0
+    "$@" || status=$?
+    if [ "$status" -eq 0 ]; then
+      return 0
+    fi
+    if [ "$attempt" -ge "$NET_ATTEMPTS" ]; then
+      echo "::error title=$label failed::$PACKAGE: $label failed $attempt times (last exit $status)"
+      return "$status"
+    fi
+    echo "::warning title=$label retry::$PACKAGE: $label failed (exit $status); attempt $((attempt + 1)) of $NET_ATTEMPTS in ${NET_RETRY_PAUSE}s"
+    sleep "$NET_RETRY_PAUSE"
+    $cleanup
+    attempt=$((attempt + 1))
+  done
+}
 
 install_tools() {
   dnf -y -q install mock createrepo_c rpm-build python3 iproute >/dev/null
@@ -87,9 +126,13 @@ lock() {
   # knows after it has resolved. Resolve with the shape of it, read the real
   # tag from the lock, and build with that.
   chown -R mockbuilder:mock "$staged"
-  runuser -u mockbuilder -- mock -r "$H/mock.cfg" --calculate-build-dependencies \
-    --spec "$spec" --sources "$staged" --resultdir "$H/lock" \
-    --define "dist .hum1.bfin${DIST_BUMP:-}"
+  resolve_lock() {
+    runuser -u mockbuilder -- mock -r "$H/mock.cfg" --calculate-build-dependencies \
+      --spec "$spec" --sources "$staged" --resultdir "$H/lock" \
+      --define "dist .hum1.bfin${DIST_BUMP:-}"
+  }
+  clean_lock() { rm -rf "$H/lock"; }
+  online "lock resolve" clean_lock resolve_lock
   test -s "$H/lock/buildroot_lock.json"
   python3 - "$H/lock/buildroot_lock.json" <<'PY'
 import json, re, sys
@@ -127,7 +170,11 @@ json.dump(lock, open(sys.argv[2], "w"))
 open(sys.argv[3], "w").write("".join(unquote(urlparse(r["url"]).path) + "\n" for r in local))
 print(f"{len(remote)} to download, {len(local)} already local")
 PY
-  mock-hermetic-repo --lockfile "$H/lock/remote.json" --output-repo "$H/repo" 2>&1 | tail -3
+  fetch_remote() {
+    mock-hermetic-repo --lockfile "$H/lock/remote.json" --output-repo "$H/repo" 2>&1 | tail -3
+  }
+  clean_repo() { rm -rf "$H/repo"; }
+  online "lock fetch" clean_repo fetch_remote
   while read -r path; do
     [ -n "$path" ] || continue
     cp "$path" "$H/repo/"

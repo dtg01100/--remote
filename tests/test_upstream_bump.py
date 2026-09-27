@@ -375,6 +375,64 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(plan(ROOT, only="nautilus", opener=fake_opener({})), [])
 
 
+class ReleaseResetTests(unittest.TestCase):
+    def test_version_bump_resets_only_literal_releases(self):
+        for old, expected in (
+            ("3%{?dist}", "1%{?dist}"),
+            ("3.2%{?dist}", "1%{?dist}"),
+            ("5%{?gitdate:.%{gitdate}git%{gitversion}}%{?dist}",
+             "1%{?gitdate:.%{gitdate}git%{gitversion}}%{?dist}"),
+            ("2%{?pre_tag}%{?dist} # comment", "1%{?pre_tag}%{?dist} # comment"),
+            ("7", "1"),
+            ("0.bootstrap%{?dist}", "1.bootstrap%{?dist}"),
+            ("%autorelease", "%autorelease"),
+            ("%{baserelease}%{?dist}", "%{baserelease}%{?dist}"),
+            ("%{samba_release}%{?dist}", "%{samba_release}%{?dist}"),
+        ):
+            with self.subTest(release=old), tempfile.TemporaryDirectory() as tmp:
+                spec = Path(tmp) / "test.spec"
+                spec.write_text(f"Version: 1.0\nRelease:        {old}\n")
+                self.assertTrue(rewrite_spec(spec, "1.1"))
+                self.assertEqual(spec.read_text(),
+                                 f"Version: 1.1\nRelease:        {expected}\n")
+
+    def test_same_version_preserves_release_byte_for_byte(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = Path(tmp) / "test.spec"
+            original = "Version: 51~beta\nRelease: 3.2%{?dist}\n"
+            spec.write_text(original)
+            self.assertFalse(rewrite_spec(spec, "51.beta"))
+            self.assertEqual(spec.read_text(), original)
+
+    def test_apply_retires_counter_only_for_new_versions_on_every_feed(self):
+        for url in (
+            "https://download.gnome.org/sources/test/1/test-1.0.tar.xz",
+            "https://github.com/o/test/archive/v1.0/test-1.0.tar.xz",
+        ):
+            for version in ("1.0", "1.1"):
+                with self.subTest(url=url, version=version), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    (root / "config").mkdir()
+                    package = root / "packages" / "test"
+                    package.mkdir(parents=True)
+                    spec = package / "test.spec"
+                    spec.write_text("Version: 1.0\nRelease: 1%{?dist}\n")
+                    counter = {"count": 2, "baseline": "1"}
+                    entry = {"name": "test", "version": "1.0", "url": url,
+                             "filename": "test-1.0.tar.xz", "dist_bump": counter}
+                    config = root / "config" / "upstream-sources.json"
+                    config.write_text(json.dumps({"packages": [entry]}))
+                    updated = apply(root, {"name": "test", "latest": version},
+                                    opener=fake_opener({url.replace("1.0", version): b"tarball"}))
+                    written = json.loads(config.read_text())["packages"][0]
+                    self.assertEqual(written, updated)
+                    if version == "1.0":
+                        self.assertEqual(written["dist_bump"], counter)
+                    else:
+                        self.assertNotIn("dist_bump", written)
+                    self.assertIn("Release: 1%{?dist}", spec.read_text())
+
+
 class ApplyTests(unittest.TestCase):
     """apply() moves all three files together, against a scratch tree."""
 

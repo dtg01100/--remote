@@ -141,6 +141,59 @@ class HermeticLaneTests(unittest.TestCase):
         self.assertIn('startswith("file://")', script)
         self.assertIn("mock-hermetic-repo --lockfile", script)
 
+    def test_only_the_online_steps_are_retried(self) -> None:
+        # Run 36286494799 (#287) lost mdadm and setxkbmap to a dropped
+        # connection in mock-hermetic-repo and dmidecode to one in the lock's
+        # repoquery. Both online steps go through `online`, which cleans the
+        # partial result between attempts; the offline build never does --
+        # its only retry is the deliberate %check one.
+        script = SCRIPT.read_text()
+        self.assertIn('online "lock resolve" clean_lock resolve_lock', script)
+        self.assertIn('online "lock fetch" clean_repo fetch_remote', script)
+        self.assertIn('clean_lock() { rm -rf "$H/lock"; }', script)
+        self.assertIn('clean_repo() { rm -rf "$H/repo"; }', script)
+        self.assertNotIn("online build_offline", script)
+        self.assertNotIn("online runuser -u mockbuilder -- mock --hermetic-build", script)
+        self.assertIn("NET_ATTEMPTS=${HERMETIC_NET_ATTEMPTS:-3}", script)
+
+    def test_online_retries_then_gives_up_with_the_last_status(self) -> None:
+        import subprocess
+        import tempfile
+
+        script = SCRIPT.read_text()
+        start = script.index("NET_ATTEMPTS=")
+        end = script.index("render_config() {")
+        helper = script[start:end].replace("sleep \"$NET_RETRY_PAUSE\"", "true")
+        with tempfile.TemporaryDirectory() as directory:
+            counter = Path(directory) / "count"
+            probe = f"""
+set -euo pipefail
+PACKAGE=probe
+{helper}
+cleanups=0
+cleanup() {{ cleanups=$((cleanups + 1)); }}
+flaky() {{ n=$(cat {counter} 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > {counter}; [ "$n" -ge "$PASS_ON" ]; }}
+online probe cleanup flaky
+echo "attempts=$(cat {counter}) cleanups=$cleanups"
+"""
+            passes = subprocess.run(["bash", "-c", probe], env={"PASS_ON": "2", "PATH": "/usr/bin:/bin"},
+                                    capture_output=True, text=True)
+            self.assertEqual(passes.returncode, 0, passes.stdout + passes.stderr)
+            self.assertIn("attempts=2 cleanups=1", passes.stdout)
+            self.assertIn("::warning title=probe retry::probe: probe failed (exit 1); attempt 2 of 3", passes.stdout)
+            counter.unlink()
+            gives_up = subprocess.run(["bash", "-c", probe], env={"PASS_ON": "9", "PATH": "/usr/bin:/bin"},
+                                      capture_output=True, text=True)
+            self.assertEqual(gives_up.returncode, 1, gives_up.stdout + gives_up.stderr)
+            self.assertEqual(counter.read_text().strip(), "3")
+            self.assertIn("::error title=probe failed::probe: probe failed 3 times (last exit 1)", gives_up.stdout)
+            counter.unlink()
+            capped = subprocess.run(["bash", "-c", probe],
+                                    env={"PASS_ON": "9", "HERMETIC_NET_ATTEMPTS": "1", "PATH": "/usr/bin:/bin"},
+                                    capture_output=True, text=True)
+            self.assertEqual(capped.returncode, 1)
+            self.assertEqual(counter.read_text().strip(), "1")
+
     def test_mock_config_carries_a_ready_bootstrap_image_only_when_asked(self) -> None:
         plain = render()
         self.assertNotIn("bootstrap_image", plain)
