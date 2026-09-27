@@ -141,7 +141,7 @@ The root Packit configuration and the source lock both cover all 402 recipes:
 `python3 tools/validate.py` reports:
 
 ```text
-validated 402 source RPMs
+validated 402 source RPMs (399 rawhide, 3 upstream)
 ```
 
 ## Current binary pipeline
@@ -316,8 +316,8 @@ The repository gates are enforced across CI workflows and collected in `Justfile
 | --- | --- | --- | --- |
 | Factory onboarding contract | `tools/factory_contract.py` | `.github/workflows/validate.yml` | Skill router coverage, skill front-matter, the `AGENTS.md` self-improvement mandate, the pinned `projectbluefin/common` sidecar, banned changelog and session-notes files, and relative documentation links |
 | Package factory configuration | `tools/validate.py` | `.github/workflows/validate.yml` | Import provenance in `.hummingbird-upstream.json`, source-lock coverage, and Packit configuration for every recipe |
-| Workflow shell quoting | `tools/check_workflow_quoting.py` | `.github/workflows/rebuild-rpms.yml` (`prepare`) | Shell-quoting safety of build scripts embedded in GitHub Actions workflows |
-| Runtime contract | `tools/runtime_contract.py config/bluefin-packages.toml config/runtime-contract.toml --check` | `.github/workflows/rebuild-rpms.yml` (`prepare`) | Image manifest resolution against the pinned Hummingbird runtime contract |
+| Workflow shell quoting | `tools/check_workflow_quoting.py` | `.github/workflows/validate.yml`, `.github/workflows/rebuild-rpms.yml` (`prepare`) | Shell-quoting safety of build scripts embedded in GitHub Actions workflows |
+| Runtime contract | `tools/runtime_contract.py config/bluefin-packages.toml config/runtime-contract.toml --check` | `.github/workflows/validate.yml`, `.github/workflows/rebuild-rpms.yml` (`prepare`) | Image manifest resolution against the pinned Hummingbird runtime contract |
 | Unit tests | `pytest tests` / `unittest discover` | `.github/workflows/validate.yml`, `.github/workflows/rebuild-rpms.yml` (`prepare`) | The tooling in `tools/`, including `tools/publish_gate.py`, whose regression test asserts the rebuild-rpms.yml publish job replaces only what a run built, keeps a failed or precedence-losing package at its previous build, and never publishes a candidate whose Hummingbird-only transaction does not resolve |
 
 `just check` runs all five gates (`factory-check`, `validate`, `workflow-quoting`,

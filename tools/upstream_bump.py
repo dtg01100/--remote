@@ -15,7 +15,7 @@ only the first:
 
   config/upstream-sources.json  version, url, filename, sha512, sha256_url,
                                 fallback_urls
-  packages/<pkg>/<pkg>.spec     Version:
+  packages/<pkg>/<pkg>.spec     Version:, Release:
   packages/<pkg>/sources        SHA512 (<tarball>) = <digest>
 
 A version bump with a stale checksum is rejected by source_pipeline.py -- a
@@ -408,8 +408,20 @@ def forge_planned_entry(entry: dict, release: str, digest: str) -> dict:
     return updated
 
 
+RELEASE_LINE = re.compile(r"(?m)^(Release:[ \t]*)(\d+(?:\.\d+)*)(.*)$")
+
+
+def reset_release(text: str) -> str:
+    """Reset the leading literal to 1, preserving macros and trailing text.
+
+    Macro-only releases have no literal to reset, just as dist_bump has no
+    comparable baseline for them.
+    """
+    return RELEASE_LINE.sub(lambda m: f"{m.group(1)}1{m.group(3)}", text, count=1)
+
+
 def rewrite_spec(spec: Path, release: str) -> bool:
-    """Point a spec's Version: at a new release. True when it changed."""
+    """Update Version: and reset a literal Release:. True when changed."""
     text = spec.read_text()
     wanted = rpm_version(release)
     pattern = re.compile(r"(?m)^(Version:\s*)(\S+)$")
@@ -418,7 +430,8 @@ def rewrite_spec(spec: Path, release: str) -> bool:
         raise ValueError(f"{spec}: no Version: line to bump")
     if match.group(2) == wanted:
         return False
-    spec.write_text(pattern.sub(lambda m: m.group(1) + wanted, text, count=1))
+    text = pattern.sub(lambda m: m.group(1) + wanted, text, count=1)
+    spec.write_text(reset_release(text))
     return True
 
 
@@ -599,6 +612,9 @@ def apply(root: Path, proposal: dict, opener=urllib.request.urlopen) -> dict:
         url = substituted(entry["url"], [(entry["version"], release)])
         digest = sha512_of(url, opener=opener)
         updated = forge_planned_entry(entry, release, digest)
+    # The counter belongs to the old version even if both releases are 1.
+    if rpm_version(entry["version"]) != rpm_version(updated["version"]):
+        updated.pop("dist_bump", None)
     document["packages"][index] = updated
     config.write_text(json.dumps(document, indent=2) + "\n")
 

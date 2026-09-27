@@ -23,6 +23,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: python3 tools/validate.py
 
+  workflow-quoting:
+    name: Workflow build-script quoting
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: python3 tools/check_workflow_quoting.py
+
+  runtime-contract:
+    name: Runtime contract
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: |
+          python3 tools/runtime_contract.py \
+            config/bluefin-packages.toml config/runtime-contract.toml --check
+
   tests:
     name: Unit tests
     runs-on: ubuntu-24.04
