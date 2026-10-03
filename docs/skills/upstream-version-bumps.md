@@ -98,3 +98,8 @@ Constraints that shaped it, so they are not rediscovered:
   daily bump re-dispatches the gate even when nothing new moved, which
   retries a flaky build.
 - A `target-cycle` (GNOME-next) run is never gated; it stays a human merge.
+- A `--package` dispatch that proposes a relock — a move that also shifts the
+  primary URL — writes to `bump/upstream-sources-relock-<pkg>` instead of
+  the daily branch and stays human-merged. Writing it to the daily branch
+  would let the next scheduled create-pull-request run rebuild that branch
+  from a non-relocking plan and force-update the relock commit away (#341).

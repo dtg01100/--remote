@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -1016,21 +1017,30 @@ class ApplyTests(unittest.TestCase):
 class MainApplyTests(unittest.TestCase):
     """main() keeps going when one bump's bytes cannot be fetched."""
 
-    def run_main(self, proposals, apply_side_effect):
+    def run_main(self, proposals, apply_side_effect, *, env=None):
         import contextlib
+        import tempfile
         from unittest import mock
 
         from tools import upstream_bump
 
         out, err = io.StringIO(), io.StringIO()
         argv = ["upstream_bump.py", "--apply"]
-        with mock.patch.object(sys, "argv", argv), \
-                mock.patch.object(upstream_bump, "plan", return_value=proposals), \
-                mock.patch.object(upstream_bump, "apply", side_effect=apply_side_effect) as applied, \
-                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            out.reconfigure = lambda **_: None
-            code = upstream_bump.main()
-        return code, applied, err.getvalue()
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "outputs"
+            output_path.touch()
+            patched_env = {"GITHUB_OUTPUT": str(output_path)}
+            if env:
+                patched_env.update(env)
+            with mock.patch.dict(os.environ, patched_env, clear=False), \
+                    mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(upstream_bump, "plan", return_value=proposals), \
+                    mock.patch.object(upstream_bump, "apply", side_effect=apply_side_effect) as applied, \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                out.reconfigure = lambda **_: None
+                code = upstream_bump.main()
+            outputs = output_path.read_text()
+        return code, applied, err.getvalue(), outputs
 
     def test_one_failed_download_skips_only_that_package(self) -> None:
         proposals = [
@@ -1043,7 +1053,7 @@ class MainApplyTests(unittest.TestCase):
                 raise urllib.error.HTTPError("https://x/broken", 404, "Not Found", {}, None)
             return {}
 
-        code, applied, err = self.run_main(proposals, side_effect)
+        code, applied, err, _ = self.run_main(proposals, side_effect)
         self.assertEqual(code, 0)
         self.assertEqual(applied.call_count, 2)
         self.assertIn("skipped broken", err)
@@ -1054,8 +1064,29 @@ class MainApplyTests(unittest.TestCase):
         def side_effect(root, bump):
             raise OSError("unreachable")
 
-        code, _, _ = self.run_main(proposals, side_effect)
+        code, _, _, _ = self.run_main(proposals, side_effect)
         self.assertEqual(code, 1)
+
+    def test_writes_relock_true_when_a_relock_was_proposed(self) -> None:
+        proposals = [
+            {"kind": "relock", "name": "nautilus", "current": "51~beta", "latest": "51.0.1"},
+        ]
+        code, _, _, outputs = self.run_main(proposals, lambda root, bump: {})
+        self.assertEqual(code, 0)
+        self.assertEqual(outputs.strip(), "relock=true")
+
+    def test_writes_relock_false_when_no_relock_was_proposed(self) -> None:
+        proposals = [
+            {"kind": "update", "name": "fzf", "current": "0.55", "latest": "0.56"},
+        ]
+        code, _, _, outputs = self.run_main(proposals, lambda root, bump: {})
+        self.assertEqual(code, 0)
+        self.assertEqual(outputs.strip(), "relock=false")
+
+    def test_writes_relock_false_when_nothing_was_proposed(self) -> None:
+        code, _, _, outputs = self.run_main([], lambda root, bump: {})
+        self.assertEqual(code, 0)
+        self.assertEqual(outputs.strip(), "relock=false")
 
 
 if __name__ == "__main__":
