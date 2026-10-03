@@ -3,8 +3,10 @@
 import io
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
+import urllib.error
 
 from tools.upstream_bump import (
     apply,
@@ -798,6 +800,118 @@ class ApplyTests(unittest.TestCase):
             )
             updated = apply(root, {"name": "pango", "latest": "1.59.0"}, opener=opener)
             self.assertNotEqual(updated["sha512"], "d" * 128)
+
+    def test_a_forge_update_fetches_from_its_own_url_not_gnome(self) -> None:
+        # forge_proposal() puts its feed label under "module". apply() read
+        # that as a GNOME module and fetched
+        # download.gnome.org/sources/github.com/..., a 404 that ended every
+        # scheduled run with a forge update in it.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "config").mkdir()
+            (root / "packages" / "adw-gtk3-theme").mkdir(parents=True)
+            (root / "config" / "upstream-sources.json").write_text(
+                json.dumps(
+                    {
+                        "packages": [
+                            {
+                                "name": "adw-gtk3-theme",
+                                "version": "6.4",
+                                "url": "https://github.com/lassekongo83/adw-gtk3/releases/download/v6.4/adw-gtk3v6.4.tar.xz",
+                                "filename": "adw-gtk3v6.4.tar.xz",
+                                "sha512": "e" * 128,
+                            }
+                        ]
+                    },
+                    indent=2,
+                )
+                + "\n"
+            )
+            opener = fake_opener(
+                {
+                    "https://github.com/lassekongo83/adw-gtk3/releases/download/v6.5/adw-gtk3v6.5.tar.xz": b"6.5"
+                }
+            )
+            updated = apply(
+                root,
+                {
+                    "kind": "update",
+                    "name": "adw-gtk3-theme",
+                    "module": "github.com/lassekongo83/adw-gtk3",
+                    "current": "6.4",
+                    "latest": "6.5",
+                },
+                opener=opener,
+            )
+            self.assertEqual(updated["version"], "6.5")
+            self.assertEqual(updated["filename"], "adw-gtk3v6.5.tar.xz")
+
+
+    def test_a_spec_that_cannot_be_bumped_leaves_the_lock_alone(self) -> None:
+        # main() skips a package whose apply() raises; nothing may be half
+        # written when it does.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "config").mkdir()
+            package = root / "packages" / "pango"
+            package.mkdir(parents=True)
+            lock = {"packages": [{
+                "name": "pango", "version": "1.58.2",
+                "url": "https://download.gnome.org/sources/pango/1/pango-1.58.2.tar.xz",
+                "filename": "pango-1.58.2.tar.xz", "sha512": "d" * 128}]}
+            config = root / "config" / "upstream-sources.json"
+            config.write_text(json.dumps(lock, indent=2) + "\n")
+            before = config.read_text()
+            (package / "pango.spec").write_text("Name: pango\n")
+            opener = fake_opener(
+                {"https://download.gnome.org/sources/pango/1.58/pango-1.58.3.tar.xz": b"x"})
+            with self.assertRaises(ValueError):
+                apply(root, {"name": "pango", "latest": "1.58.3"}, opener=opener)
+            self.assertEqual(config.read_text(), before)
+
+class MainApplyTests(unittest.TestCase):
+    """main() keeps going when one bump's bytes cannot be fetched."""
+
+    def run_main(self, proposals, apply_side_effect):
+        import contextlib
+        from unittest import mock
+
+        from tools import upstream_bump
+
+        out, err = io.StringIO(), io.StringIO()
+        argv = ["upstream_bump.py", "--apply"]
+        with mock.patch.object(sys, "argv", argv), \
+                mock.patch.object(upstream_bump, "plan", return_value=proposals), \
+                mock.patch.object(upstream_bump, "apply", side_effect=apply_side_effect) as applied, \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            out.reconfigure = lambda **_: None
+            code = upstream_bump.main()
+        return code, applied, err.getvalue()
+
+    def test_one_failed_download_skips_only_that_package(self) -> None:
+        proposals = [
+            {"kind": "update", "name": "broken", "current": "1.0", "latest": "1.1"},
+            {"kind": "update", "name": "fine", "current": "2.0", "latest": "2.1"},
+        ]
+
+        def side_effect(root, bump):
+            if bump["name"] == "broken":
+                raise urllib.error.HTTPError("https://x/broken", 404, "Not Found", {}, None)
+            return {}
+
+        code, applied, err = self.run_main(proposals, side_effect)
+        self.assertEqual(code, 0)
+        self.assertEqual(applied.call_count, 2)
+        self.assertIn("skipped broken", err)
+
+    def test_fails_when_nothing_could_be_applied(self) -> None:
+        proposals = [{"kind": "update", "name": "broken", "current": "1.0", "latest": "1.1"}]
+
+        def side_effect(root, bump):
+            raise OSError("unreachable")
+
+        code, _, _ = self.run_main(proposals, side_effect)
+        self.assertEqual(code, 1)
 
 
 if __name__ == "__main__":
