@@ -1116,6 +1116,61 @@ class MainApplyTests(unittest.TestCase):
         self.assertEqual(code, 1)
 
 
+class ManifestFormatTests(unittest.TestCase):
+    """Bundled pins survive a bump in either Fedora manifest form (#326)."""
+
+    def write(self, text):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        manifest = Path(tmp.name) / "sources"
+        manifest.write_text(text)
+        return manifest
+
+    def test_legacy_md5_bundled_pins_are_kept(self):
+        from tools.upstream_bump import rewrite_sources
+        manifest = self.write(
+            "b304bbe8ab63373924a744eac9ebc652  fxload-2008_10_13.tar.gz\n"
+            "c1856eceed08f71a5600a716e10b29f1  fxload-2008_10_13-noa3load.tar.gz\n")
+        rewrite_sources(manifest, "fxload-2026.tar.gz", "a" * 128,
+                        previous="fxload-2008_10_13.tar.gz")
+        self.assertEqual(manifest.read_text(),
+                         f"SHA512 (fxload-2026.tar.gz) = {'a' * 128}\n"
+                         "c1856eceed08f71a5600a716e10b29f1  fxload-2008_10_13-noa3load.tar.gz\n")
+
+    def test_unparseable_lines_and_order_are_kept(self):
+        from tools.upstream_bump import rewrite_sources
+        manifest = self.write(
+            f"SHA512 (extra.tar.xz) = {'b' * 128}\n"
+            f"SHA512 (pkg-1.0.tar.xz) = {'c' * 128}\n"
+            "something this tool does not parse\n")
+        rewrite_sources(manifest, "pkg-1.1.tar.xz", "d" * 128, previous="pkg-1.0.tar.xz")
+        self.assertEqual(manifest.read_text().splitlines(), [
+            f"SHA512 (extra.tar.xz) = {'b' * 128}",
+            f"SHA512 (pkg-1.1.tar.xz) = {'d' * 128}",
+            "something this tool does not parse",
+        ])
+
+    def test_a_missing_primary_pin_is_appended(self):
+        from tools.upstream_bump import rewrite_sources
+        manifest = self.write(f"SHA256 (keyring.gpg) = {'e' * 64}\n")
+        rewrite_sources(manifest, "pkg-2.tar.xz", "f" * 128, previous="pkg-1.tar.xz")
+        self.assertEqual(manifest.read_text().splitlines(), [
+            f"SHA256 (keyring.gpg) = {'e' * 64}", f"SHA512 (pkg-2.tar.xz) = {'f' * 128}"])
+
+    def test_check_bumpable_sees_version_bound_md5_entries(self):
+        from tools.upstream_bump import check_bumpable
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package = root / "packages" / "gum"
+            package.mkdir(parents=True)
+            (package / "sources").write_text(
+                "0123456789abcdef0123456789abcdef  gum-2.0.0.tar.gz\n"
+                "fedcba9876543210fedcba9876543210  gum-2.0.0-vendor.tar.bz2\n")
+            with self.assertRaises(ValueError):
+                check_bumpable(root, {"name": "gum", "version": "2.0.0",
+                                      "filename": "gum-2.0.0.tar.gz"})
+
+
 if __name__ == "__main__":
     unittest.main()
 

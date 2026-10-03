@@ -40,7 +40,10 @@ now forces.
 The `sources` manifest pins more than the primary tarball: bundled files
 fetched from Fedora's lookaside by digest (`source_pipeline.py`
 `bundled_sources`), such as `ppp-watch.tar.xz`, `krobelus.gpg`, a vendored Go
-tree. `rewrite_sources()` moves only the primary line and keeps the rest.
+tree. `rewrite_sources()` replaces only the primary line, in place, and
+keeps every other line verbatim, in either manifest form: the BSD
+`ALGO (file) = hex` lines and the legacy md5sum `hex  file` lines ten carried
+recipes still use (#326). Keeping only the BSD lines dropped those pins too.
 Rewriting the manifest to the tarball alone dropped them, and in the first
 gated bump (run 37129679613) adw-gtk3-theme, fish, gum and ppp all died in
 `rpmbuild -bs`, reported as "lock resolve failed 3 times", before

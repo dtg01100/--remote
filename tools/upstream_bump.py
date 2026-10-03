@@ -558,7 +558,18 @@ def rewrite_spec(spec: Path, release: str) -> bool:
     return True
 
 
-MANIFEST_LINE = re.compile(r"SHA512 \((\S+)\) = [0-9a-f]{128}")
+# Fedora `sources` manifests use the BSD form (`SHA512 (file) = <hex>`) and,
+# in older recipes, the legacy md5sum form (`<32 hex>  file`). Ten carried
+# recipes still use the latter.
+MANIFEST_LINE = re.compile(
+    r"(?:[A-Za-z0-9]+ \((?P<bsd>\S+)\) = [0-9a-fA-F]+|[0-9a-fA-F]{32} [ *](?P<md5>\S+))"
+)
+
+
+def manifest_name(line: str) -> str | None:
+    """The file a manifest line pins, or None for a line in neither form."""
+    match = MANIFEST_LINE.fullmatch(line.strip())
+    return (match.group("bsd") or match.group("md5")) if match else None
 
 
 def version_bound(filename: str, version: str) -> bool:
@@ -572,7 +583,7 @@ def bundled_entries(manifest: Path, primary: str) -> list[str]:
         return []
     return [
         line for line in manifest.read_text().splitlines()
-        if (match := MANIFEST_LINE.fullmatch(line.strip())) and match.group(1) != primary
+        if line.strip() and manifest_name(line) != primary
     ]
 
 
@@ -593,8 +604,8 @@ def check_bumpable(root: Path, entry: dict) -> None:
     # glycin pins glycin-2.2.beta-vendor.tar.xz for version 2.2~beta.
     spellings = {entry["version"], tarball_version(entry["version"])}
     for line in bundled_entries(package / "sources", entry.get("filename", "")):
-        filename = MANIFEST_LINE.fullmatch(line.strip()).group(1)
-        if any(version_bound(filename, spelling) for spelling in spellings):
+        filename = manifest_name(line)
+        if filename and any(version_bound(filename, spelling) for spelling in spellings):
             raise ValueError(
                 f"{entry['name']}: bundled source {filename} is bound to {entry['version']}; "
                 "its successor has to be produced by hand"
@@ -602,18 +613,30 @@ def check_bumpable(root: Path, entry: dict) -> None:
 
 
 def rewrite_sources(manifest: Path, filename: str, digest: str, previous: str = "") -> None:
-    """Move the primary tarball pin in a Fedora sources manifest.
+    """Move the primary tarball pin in a Fedora sources manifest, in place.
 
     Every other line -- a bundled file fetched from the lookaside by its own
-    digest -- is kept. Writing the new pin alone dropped them, and the build
-    of every such package (ppp, adw-gtk3-theme, gum, fish) died in
-    `rpmbuild -bs` on a missing source.
+    digest, in either manifest form, or a line this tool cannot parse -- is
+    kept verbatim. Writing the new pin alone dropped them, and the build of
+    every such package (ppp, adw-gtk3-theme, gum, fish) died in `rpmbuild -bs`
+    on a missing source; keeping only BSD-form lines would still have dropped
+    the bundled pins of the legacy md5 manifests (#326).
     """
-    kept = bundled_entries(manifest, previous or filename)
-    lines = [f"SHA512 ({filename}) = {digest}", *[line for line in kept
-             if MANIFEST_LINE.fullmatch(line.strip()).group(1) != filename]]
-    manifest.write_text("\n".join(lines) + "\n")
-
+    primary = previous or filename
+    pin = f"SHA512 ({filename}) = {digest}"
+    lines = manifest.read_text().splitlines() if manifest.is_file() else []
+    out, placed = [], False
+    for line in lines:
+        name = manifest_name(line)
+        if name in (primary, filename):
+            if not placed:
+                out.append(pin)
+                placed = True
+            continue
+        out.append(line)
+    if not placed:
+        out.append(pin)
+    manifest.write_text("\n".join(out) + "\n")
 
 def held(proposal: dict, holds: dict[str, dict]) -> dict | None:
     """The hold that stops this proposal, if its exact version is held."""
