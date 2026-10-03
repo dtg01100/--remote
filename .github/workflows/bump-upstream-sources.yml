@@ -115,6 +115,12 @@ jobs:
           # it never collides with the daily in-cycle PR.
           branch: ${{ inputs.target-cycle != '' && format('bump/upstream-sources-cycle-{0}', inputs.target-cycle) || 'bump/upstream-sources' }}
           delete-branch: true
+          # Only the lock and the recipes. The verification steps above leave
+          # source_pipeline.py reports in work/; without this the PR committed
+          # dozens of work/reports/*.json files alongside the bumps.
+          add-paths: |
+            config/upstream-sources.json
+            packages/
           title: 'chore(sources): bump upstream locks to released versions'
           commit-message: 'chore(sources): bump upstream locks to released versions'
           body: |
