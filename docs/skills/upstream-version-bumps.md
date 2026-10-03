@@ -37,6 +37,24 @@ none applied. A CI log that names a package right before a traceback is not
 evidence that package failed unless stdout is line buffered, which `main()`
 now forces.
 
+The `sources` manifest pins more than the primary tarball: bundled files
+fetched from Fedora's lookaside by digest (`source_pipeline.py`
+`bundled_sources`), such as `ppp-watch.tar.xz`, `krobelus.gpg`, a vendored Go
+tree. `rewrite_sources()` moves only the primary line and keeps the rest.
+Rewriting the manifest to the tarball alone dropped them, and in the first
+gated bump (run 37129679613) adw-gtk3-theme, fish, gum and ppp all died in
+`rpmbuild -bs`, reported as "lock resolve failed 3 times", before
+anything compiled. `check_bumpable()` refuses, before fetching anything, two
+recipes a bump cannot move on its own: a bundled entry whose name carries
+the old version, in either its RPM or tarball spelling
+(`gum-2.0.0-vendor.tar.bz2`, `fish-4.6.0.tar.xz.asc`,
+`glycin-2.2.beta-vendor.tar.xz` for `2.2~beta`, whose successor someone has
+to produce), and a `Version:` computed from macros that a `Source` line also
+reads, directly or through another macro (alsa-sof-firmware's
+`%{sof_ver_pkg}`, re2's `%{tag}`). A macro `Version:` whose sources read only
+`%{version}` (pipewire, alsa-utils) is still overwritten with a literal. Both
+refusals are skipped with a reason, like a failed download.
+
 ## The bump gate
 
 The daily in-cycle pull request on `bump/upstream-sources` merges itself

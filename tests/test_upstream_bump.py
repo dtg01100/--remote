@@ -31,6 +31,8 @@ from tools.upstream_bump import (
     strip_tag_prefix,
     substituted,
     candidates,
+    check_bumpable,
+    version_bound,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -364,6 +366,148 @@ class SourcesManifestTests(unittest.TestCase):
             self.assertEqual(
                 manifest.read_text(), f"SHA512 (gnome-shell-51.0.tar.xz) = {'f' * 128}\n"
             )
+
+
+class BundledSourcesTests(unittest.TestCase):
+    """A bump moves the primary pin and keeps every bundled lookaside file.
+
+    PR #323 rewrote ppp's manifest to the tarball alone, dropping
+    ppp-watch.tar.xz; adw-gtk3-theme lost its README and LICENSE copies, and
+    both died in `rpmbuild -bs` before the gate could build anything.
+    """
+
+    DIGEST = "a" * 128
+
+    def test_keeps_bundled_entries_in_place(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "sources"
+            manifest.write_text(
+                f"SHA512 (ppp-2.5.3.tar.gz) = {'0' * 128}\n"
+                f"SHA512 (ppp-watch.tar.xz) = {'1' * 128}\n"
+            )
+            rewrite_sources(manifest, "ppp-2.5.4.tar.gz", self.DIGEST, previous="ppp-2.5.3.tar.gz")
+            self.assertEqual(
+                manifest.read_text(),
+                f"SHA512 (ppp-2.5.4.tar.gz) = {self.DIGEST}\n"
+                f"SHA512 (ppp-watch.tar.xz) = {'1' * 128}\n",
+            )
+
+    def test_a_manifest_naming_the_new_file_is_not_duplicated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "sources"
+            manifest.write_text(f"SHA512 (x-1.1.tar.gz) = {'0' * 128}\n")
+            rewrite_sources(manifest, "x-1.1.tar.gz", self.DIGEST, previous="x-1.0.tar.gz")
+            self.assertEqual(manifest.read_text(), f"SHA512 (x-1.1.tar.gz) = {self.DIGEST}\n")
+
+    def test_version_bound_names(self) -> None:
+        self.assertTrue(version_bound("gum-2.0.0-vendor.tar.bz2", "2.0.0"))
+        self.assertTrue(version_bound("fish-4.6.0.tar.xz.asc", "4.6.0"))
+        self.assertFalse(version_bound("rust-pcre2-0.2.9-utf32.tar.gz", "4.6.0"))
+        self.assertFalse(version_bound("ppp-watch.tar.xz", "2.5.3"))
+        self.assertFalse(version_bound("x-1.2.3.tar.gz", "1.2"))
+        self.assertFalse(version_bound("x-11.2.tar.gz", "1.2"))
+
+    def scratch(self, tmp: str, name: str, spec: str, manifest: str) -> tuple[Path, dict]:
+        root = Path(tmp)
+        package = root / "packages" / name
+        package.mkdir(parents=True)
+        (package / f"{name}.spec").write_text(spec)
+        (package / "sources").write_text(manifest)
+        return root, {"name": name, "version": "2.0.0", "filename": f"{name}-2.0.0.tar.gz"}
+
+    def test_refuses_a_bundled_source_bound_to_the_old_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root, entry = self.scratch(
+                tmp, "gum", "Version: 2.0.0\n",
+                f"SHA512 (gum-2.0.0.tar.gz) = {'0' * 128}\n"
+                f"SHA512 (gum-2.0.0-vendor.tar.bz2) = {'1' * 128}\n",
+            )
+            with self.assertRaisesRegex(ValueError, "gum-2.0.0-vendor.tar.bz2"):
+                check_bumpable(root, entry)
+
+    def test_refuses_a_version_macro_a_source_line_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root, entry = self.scratch(
+                tmp, "sof",
+                "%global sof_ver 2.0.0\n%global sof_ver_pkg v%{sof_ver}\nVersion: %{sof_ver}\n"
+                "Source: https://example.org/%{sof_ver_pkg}/sof-%{sof_ver}.tar.gz\n",
+                f"SHA512 (sof-2.0.0.tar.gz) = {'0' * 128}\n",
+            )
+            with self.assertRaisesRegex(ValueError, "macros"):
+                check_bumpable(root, entry)
+            with self.assertRaises(ValueError):
+                rewrite_spec(root / "packages" / "sof" / "sof.spec", "2.0.1")
+
+    def test_refuses_a_source_reading_a_macro_version_depends_on(self) -> None:
+        # re2: Version: %{base_version}, computed from %{tag}, which Source reads.
+        with tempfile.TemporaryDirectory() as tmp:
+            root, entry = self.scratch(
+                tmp, "re2",
+                "%global tag 2025-11-05\n%global base_version %(echo '%{tag}' | tr -d -)\n"
+                "Version: %{base_version}\nSource: https://example.org/%{tag}/re2-%{tag}.tar.gz\n",
+                f"SHA512 (re2-2.0.0.tar.gz) = {'0' * 128}\n",
+            )
+            with self.assertRaisesRegex(ValueError, "macros"):
+                check_bumpable(root, entry)
+
+    def test_a_macro_version_whose_sources_read_version_is_bumpable(self) -> None:
+        # pipewire and alsa-utils: Source0 reads %{version}, not the components.
+        spec_text = (
+            "%global majorversion 2\n%global minorversion 0\n%global microversion 0\n"
+            "%global libversion 0.%(echo $((%{minorversion} * 100))).0\n"
+            "Version: %{majorversion}.%{minorversion}.%{microversion}\n"
+            "Release: 3%{?dist}\n"
+            "Source0: https://example.org/%{version}/pipewire-%{version}.tar.gz\n"
+            "Source1: pipewire.sysusers\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root, entry = self.scratch(
+                tmp, "pipewire", spec_text, f"SHA512 (pipewire-2.0.0.tar.gz) = {'0' * 128}\n",
+            )
+            check_bumpable(root, entry)
+            spec = root / "packages" / "pipewire" / "pipewire.spec"
+            self.assertTrue(rewrite_spec(spec, "2.0.1"))
+            self.assertIn("Version: 2.0.1\n", spec.read_text())
+
+    def test_refuses_a_bundled_source_in_tarball_spelling(self) -> None:
+        # glycin 2.2~beta pins glycin-2.2.beta-vendor.tar.xz.
+        with tempfile.TemporaryDirectory() as tmp:
+            root, entry = self.scratch(
+                tmp, "glycin", "Version: 2.2~beta\n",
+                f"SHA512 (glycin-2.2.beta.tar.xz) = {'0' * 128}\n"
+                f"SHA512 (glycin-2.2.beta-vendor.tar.xz) = {'1' * 128}\n",
+            )
+            entry.update(version="2.2~beta", filename="glycin-2.2.beta.tar.xz")
+            with self.assertRaisesRegex(ValueError, "glycin-2.2.beta-vendor.tar.xz"):
+                check_bumpable(root, entry)
+
+    def test_a_version_free_bundle_is_bumpable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root, entry = self.scratch(
+                tmp, "ppp", "Version: 2.0.0\n",
+                f"SHA512 (ppp-2.0.0.tar.gz) = {'0' * 128}\n"
+                f"SHA512 (ppp-watch.tar.xz) = {'1' * 128}\n",
+            )
+            check_bumpable(root, entry)
+
+    def test_apply_refuses_before_fetching_or_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root, entry = self.scratch(
+                tmp, "gum", "Version: 2.0.0\n",
+                f"SHA512 (gum-2.0.0.tar.gz) = {'0' * 128}\n"
+                f"SHA512 (gum-2.0.0-vendor.tar.bz2) = {'1' * 128}\n",
+            )
+            entry.update(url="https://github.com/charmbracelet/gum/archive/v2.0.0/gum-2.0.0.tar.gz",
+                         sha512="0" * 128)
+            (root / "config").mkdir()
+            config = root / "config" / "upstream-sources.json"
+            config.write_text(json.dumps({"packages": [entry]}, indent=2) + "\n")
+            before = config.read_text()
+            with self.assertRaises(ValueError):
+                apply(root, {"kind": "update", "name": "gum", "latest": "2.0.2"},
+                      opener=fake_opener({}))
+            self.assertEqual(config.read_text(), before)
+            self.assertIn("Version: 2.0.0", (root / "packages" / "gum" / "gum.spec").read_text())
 
 
 def fake_opener(payloads: dict):
