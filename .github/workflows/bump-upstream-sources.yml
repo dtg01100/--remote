@@ -54,6 +54,16 @@ name: Bump upstream source locks
 # holds file is committed with the bump. Cross-cycle and major candidates
 # are still only reported above, never applied, so they never reach the
 # gate. A target-cycle run is never gated: GNOME-next merges stay human.
+#
+# Three branch rules, in priority order:
+#   - target-cycle  -> bump/upstream-sources-cycle-<N>
+#   - --package     -> bump/upstream-sources (when no relock is proposed)
+#                     or bump/upstream-sources-relock-<pkg> (when one is)
+#   - otherwise     -> bump/upstream-sources (the daily in-cycle PR)
+# A `--package` dispatch that proposes a relock writes to its own branch
+# because a relock moves the primary URL and the next scheduled run
+# rebuilds it from a plan based on the old lookaside lock, which would
+# silently drop the relock commit (#341).
 
 on:
   workflow_dispatch:
@@ -105,6 +115,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Rewrite the locks, specs and source manifests
+        id: bump
         run: |
           python3 tools/upstream_bump.py --apply ${PACKAGE:+--package "$PACKAGE"} ${CYCLE:+--cycle "$CYCLE"}
         env:
@@ -133,9 +144,17 @@ jobs:
         id: cpr
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
         with:
-          # A target-cycle run (GNOME-next branches) gets its own PR branch so
-          # it never collides with the daily in-cycle PR.
-          branch: ${{ inputs.target-cycle != '' && format('bump/upstream-sources-cycle-{0}', inputs.target-cycle) || 'bump/upstream-sources' }}
+          # Three branch rules, in priority order:
+          #   1. A target-cycle run (GNOME-next branches) gets its own PR
+          #      branch so it never collides with the daily in-cycle PR.
+          #   2. A `--package` dispatch that proposes a relock gets its own
+          #      PR branch (bump/upstream-sources-relock-<pkg>): a relock
+          #      moves the primary URL, and writing it to bump/upstream-
+          #      sources means the next scheduled create-pull-request run
+          #      rebuilds that branch from its own non-relocking plan and
+          #      force-updates the relock commit away (#341).
+          #   3. Otherwise, the daily in-cycle branch.
+          branch: ${{ inputs.target-cycle != '' && format('bump/upstream-sources-cycle-{0}', inputs.target-cycle) || (inputs.package != '' && steps.bump.outputs.relock == 'true' && format('bump/upstream-sources-relock-{0}', inputs.package)) || 'bump/upstream-sources' }}
           delete-branch: true
           # Only the lock and the recipes. The verification steps above leave
           # source_pipeline.py reports in work/; without this the PR committed
@@ -173,11 +192,19 @@ jobs:
             `config/bump-holds.json` at the failing version, drops them from
             this pull request and gates the rest again.
 
+            A `--package` dispatch that proposes a relock — a move that
+            also shifts the primary off the Fedora lookaside — opens on its
+            own branch (`bump/upstream-sources-relock-<pkg>`) and stays
+            human-merged: a relock changes the upstream URL a future build
+            fetches from, and the gate does not auto-merge it.
+
       # Every day the pull request is still open, including a day on which
       # nothing new moved (operation none): a gate that failed on a flaky
       # build gets another try, and one that already merged left nothing open.
+      # Relock branches stay human-merged: a relock moves the primary URL, so
+      # it needs a human eye on the build before the lock is replaced.
       - name: Gate the update on its own build
-        if: inputs.target-cycle == '' && steps.cpr.outputs.pull-request-operation != 'closed'
+        if: inputs.target-cycle == '' && steps.bump.outputs.relock != 'true' && steps.cpr.outputs.pull-request-operation != 'closed'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}

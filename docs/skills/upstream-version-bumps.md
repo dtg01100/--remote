@@ -220,3 +220,8 @@ versions that cannot be compared with the lock's (enca's revival fork,
 libappindicator's Ubuntu snapshot, libisoburn and libisofs `.pl02`, mozc,
 spandsp date snapshots, fxload `2008_10_13`, and Vulkan headers/loader, whose
 tags mix spec `v1.4.365` with SDK `vulkan-sdk-1.4.350.0`).
+- A `--package` dispatch that proposes a relock — a move that also shifts the
+  primary URL — writes to `bump/upstream-sources-relock-<pkg>` instead of
+  the daily branch and stays human-merged. Writing it to the daily branch
+  would let the next scheduled create-pull-request run rebuild that branch
+  from a non-relocking plan and force-update the relock commit away (#341).

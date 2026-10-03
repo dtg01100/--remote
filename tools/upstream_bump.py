@@ -1030,6 +1030,16 @@ def main() -> int:
     elif args.apply and not applied:
         print("every proposed bump failed to apply", file=sys.stderr)
         return 1
+    # A relock moves the primary URL: a `workflow_dispatch --package` that
+    # proposes one must write to a branch the next daily create-pull-request
+    # run cannot overwrite, otherwise the relock commit silently disappears
+    # when the scheduled run force-updates it from a plan based on the old
+    # lookaside lock. The workflow reads this flag and routes the PR to
+    # bump/upstream-sources-relock-<pkg> when it is true.
+    relock = any(p.get("kind") == "relock" for p in finals)
+    if "GITHUB_OUTPUT" in os.environ:
+        with open(os.environ["GITHUB_OUTPUT"], "a") as handle:
+            handle.write(f"relock={'true' if relock else 'false'}\n")
     return 0
 
 
