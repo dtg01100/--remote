@@ -327,6 +327,38 @@ class SubpackageNameParserTests(unittest.TestCase):
             self._spec(root, "gstreamer1-plugins-good", body)
             self.assertEqual(backlog._subpackage_names(root), set())
 
+    def test_bcond_under_undecidable_guard_is_unknown(self) -> None:
+        """The ``%if 0%{?fedora} ... %else ... %endif`` bcond idiom.
+
+        ``packages/bluez/`` and ``packages/ffmpeg/`` declare bconds this
+        way. RPM evaluates only one branch, and the auditor cannot tell
+        which, so the bcond stays unknown instead of taking the ``%else``
+        value -- otherwise a guarded ``%package`` would be reported as
+        ``already_recipe`` when the real build may not ship it.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            body = (
+                "%if 0%{?fedora}\n%bcond_with jack\n"
+                "%else\n%bcond_without jack\n%endif\n"
+                "%if %{with jack}\n%package jack\nSummary: jack\n%endif\n"
+            )
+            self._spec(root, "pipewire", body)
+            self.assertNotIn("pipewire-jack", backlog._subpackage_names(root))
+
+    def test_bcond_under_untaken_guard_is_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            body = (
+                "%bcond_with qt6\n%bcond_with extras\n"
+                "%if %{with qt6}\n%bcond_without extras\n%endif\n"
+                "%if %{with extras}\n%package extras\nSummary: extras\n%endif\n"
+            )
+            self._spec(root, "gstreamer1-plugins-good", body)
+            self.assertNotIn(
+                "gstreamer1-plugins-good-extras", backlog._subpackage_names(root)
+            )
+
     def test_nested_guards_require_every_frame_taken(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

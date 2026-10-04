@@ -148,8 +148,11 @@ def _bcond_state(line: str, bconds: dict[str, bool]) -> None:
     Three shapes exist: ``%bcond_with NAME`` (feature off by default),
     ``%bcond_without NAME`` (on by default) and the modern
     ``%bcond NAME DEFAULT`` where ``DEFAULT`` is ``0`` or ``1``. A later
-    declaration wins, which matches RPM's own last-definition-wins
-    behaviour when a spec redefines a bcond under an ``%if``.
+    declaration wins. The caller only invokes this for a declaration
+    reached by the default build: RPM never evaluates a ``%bcond`` in an
+    untaken ``%if`` branch, so the common ``%if 0%{?fedora}
+    %bcond_without X %else %bcond_with X %endif`` idiom must not let the
+    ``%else`` value silently override the real default.
     """
     tokens = line.split()
     if len(tokens) < 2:
@@ -235,6 +238,16 @@ def _subpackage_names(root: Path) -> set[str]:
         for line in spec.read_text().splitlines():
             line = line.strip()
             if line.startswith("%bcond"):
+                if any(frame is False for frame in stack):
+                    # Untaken branch: RPM never evaluates this declaration.
+                    continue
+                if any(frame is None for frame in stack):
+                    # Undecidable branch: the bcond's value depends on the
+                    # build target, so forget it rather than guess.
+                    tokens = line.split()
+                    if len(tokens) >= 2:
+                        bconds.pop(tokens[1], None)
+                    continue
                 _bcond_state(line, bconds)
                 continue
             if line.startswith("%if"):

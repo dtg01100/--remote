@@ -28,14 +28,10 @@ The snapshot is deterministic: the report carries no wall-clock field, so a
 run that changes nothing rewrites the file byte-for-byte and leaves the tree
 clean.
 
-Not wired yet — follow-up work, do not go looking for these:
+`--check` also runs as a gate in `.github/workflows/validate.yml`.
 
-- `.github/workflows/recalculate-factory-build-backlog.yml` (periodic recalc).
-- `--check` as a gate in `validate.yml`, and `factory-build-backlog` in
-  `just check`.
-
-Until that lands, run `just factory-build-backlog` by hand before pushing a
-catalog or recipe change.
+Not wired yet — follow-up work, do not go looking for it:
+`.github/workflows/recalculate-factory-build-backlog.yml` (periodic recalc).
 
 ## Partitions
 
@@ -99,4 +95,8 @@ itself fails when the catalog totals do not reconcile with the report.
   which is true by default, so those are `already_recipe`. Conditions the
   auditor cannot decide without a build target (`%ifarch`, `0%{?fedora}`)
   are treated as not taken — an extra `pending` name is visible work, a
-  false `already_recipe` hides a gap.
+  false `already_recipe` hides a gap. A `%bcond` declared inside such a
+  branch is likewise not applied: under an untaken branch it is ignored,
+  under an undecidable one (`%if 0%{?fedora} %bcond_without X %else
+  %bcond_with X %endif`) the bcond is left unknown, so any `%if %{with X}`
+  it guards is undecidable too.
