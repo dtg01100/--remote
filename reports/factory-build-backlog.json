@@ -6,7 +6,8 @@
       "total": 49
     },
     "dev-tools": {
-      "pending": 150,
+      "already_recipe": 1,
+      "pending": 149,
       "total": 150
     },
     "fonts-i18n": {
@@ -40,7 +41,8 @@
       "total": 4
     },
     "vpn": {
-      "pending": 27,
+      "already_recipe": 3,
+      "pending": 24,
       "total": 27
     }
   },
@@ -978,7 +980,7 @@
     {
       "area": "dev-tools",
       "name": "tpm2-tools",
-      "state": "pending"
+      "state": "already_recipe"
     },
     {
       "area": "dev-tools",
@@ -2748,17 +2750,17 @@
     {
       "area": "vpn",
       "name": "pcsc-lite",
-      "state": "pending"
+      "state": "already_recipe"
     },
     {
       "area": "vpn",
       "name": "pcsc-lite-ccid",
-      "state": "pending"
+      "state": "already_recipe"
     },
     {
       "area": "vpn",
       "name": "pcsc-lite-libs",
-      "state": "pending"
+      "state": "already_recipe"
     },
     {
       "area": "vpn",
@@ -2808,9 +2810,9 @@
   ],
   "issue": "projectbluefin/utah-packages#308",
   "states": {
-    "already_recipe": 16,
+    "already_recipe": 20,
     "manifest_wants": 1,
-    "pending": 534
+    "pending": 530
   },
   "totals": {
     "backlog": 551,

@@ -63,6 +63,12 @@ Two edits — never one, never none:
   - `[wontfix].packages` (`{ name = "<n>", reason = "..." }`) — Utah decided
     not to carry it, with a link to the decision issue.
 
+`[resolved]` is the only closing record. A recipe import PR makes this
+two-edit move in the same PR; `already_recipe` is the auditor's observation
+of an area name whose move is still owed (for example a recipe that landed
+before the name was catalogued), not an alternative way to close it, and the
+next PR that touches the name sweeps it into `[resolved]`.
+
 The catalog test (`tests/test_factory_build_backlog.py::CatalogConsistencyTests`)
 fails a PR that drops a name without recording the decision. The auditor
 itself fails when the catalog totals do not reconcile with the report.
