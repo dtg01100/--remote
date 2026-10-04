@@ -500,9 +500,10 @@ pull request.
   host has none. Add the Fedora lookaside as `fallback_urls`, never as `url`.
 - Regenerate `.packit.yaml` with `python3 tools/render_packit_config.py
   --write`.
-- Bump the recipe count in the tests listed under *Removing a package* in
-  [`contributing.md`](../contributing.md) and in `docs/architecture.md`,
-  including the quoted `validate.py` output line.
+- Refresh the counts in `docs/architecture.md` with
+  `python3 tools/render_architecture_counts.py --write`; the contract step
+  (`tests/test_architecture_counts.py`) reads the inventory directly, so the
+  four `tests/` files that used to carry the count no longer track it.
 - `just check` green on the import branch, not after merge.
 
 The daily re-import of carried recipes (`tools/rawhide_reimport.py`, the
