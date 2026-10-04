@@ -31,6 +31,8 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from tools.package_inventory import inventory, source_locks
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -126,12 +128,15 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    original = DOC.read_text(encoding="utf-8")
+    # DOC follows --root so --root <elsewhere> rewrites the other tree's doc
+    # with that tree's counts, not this checkout's.
+    doc = args.root / "docs" / "architecture.md"
+    original = doc.read_text(encoding="utf-8")
     rendered = render(original, args.root)
     if rendered == original:
         return 0
     if args.write:
-        DOC.write_text(rendered, encoding="utf-8")
+        doc.write_text(rendered, encoding="utf-8")
         return 0
     sys.stderr.write(
         "docs/architecture.md is out of date; rerun with --write to refresh.\n"
