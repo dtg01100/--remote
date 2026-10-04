@@ -37,6 +37,20 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The token is mounted into the docker run as GITHUB_TOKEN by
+          # default; disable the credential helper so a leaked rpmspec
+          # expansion (an unreviewed spec the import step just fetched)
+          # cannot read it.
+          persist-credentials: false
+      - name: Install test dependencies
+        # ubuntu-24.04 does not ship pytest / pyyaml; the gate step below
+        # imports yaml (tests/test_packit_srpm.py) and runs the full unit
+        # suite.
+        run: |
+          python3 -m pip install --quiet \
+            pytest==8.3.5 \
+            pyyaml==6.0.3
       - name: Import Fedora dist-git snapshot
         env:
           PACKAGE: ${{ inputs.package }}
@@ -53,9 +67,10 @@ jobs:
           PACKAGE: ${{ inputs.package }}
         run: |
           docker run --rm \
+            -e PACKAGE \
             -v "$PWD:/workspace:Z" \
             -w /workspace \
-            quay.io/packit/packit:latest@sha256:fed8ce4b0ef1c2778e6d4f18723b208f1b4c7f1115d8a33b8507c9f2c78765b5 bash -exc '
+            quay.io/packit/packit:latest@sha256:fed8ce4b0ef1c2778e6d4f18723b208f1b4c7f1115d8a33b8507c9f9c78765b5 bash -exc '
               git config --global --add safe.directory "*"
               python3 tools/bootstrap_upstream_sources.py \
                 --package "$PACKAGE" \
@@ -68,6 +83,12 @@ jobs:
           PACKAGE: ${{ inputs.package }}
         run: |
           python3 tools/render_packit_config.py --write
+      - name: Refresh the architecture.md inventory counts
+        # tests/test_architecture_counts.py reads docs/architecture.md and
+        # compares its numbers to the live inventory; an import that adds
+        # a recipe makes that comparison fail unless the doc moves with it.
+        run: |
+          python3 tools/render_architecture_counts.py --write
       - name: Run the same gates a contributor runs
         # A PR that cannot pass these is not opened. Runs the unit suite,
         # validate (which itself reports the new inventory size), and the
@@ -81,13 +102,14 @@ jobs:
         with:
           branch: import/rawhide-${{ inputs.package }}
           delete-branch: true
-          # The four files the agreement gate compares. Anything outside this
+          # The five files the agreement gate compares. Anything outside this
           # list does not belong on the import branch.
           add-paths: |
             packages/${{ inputs.package }}/
             .packit.yaml
             config/upstream-sources.json
             reports/import-source-bootstrap.json
+            docs/architecture.md
           title: 'import: Rawhide ${{ inputs.package }}'
           commit-message: 'import: Rawhide ${{ inputs.package }}'
           body: |
@@ -97,10 +119,10 @@ jobs:
             `tools/bootstrap_upstream_sources.py --package <name> --merge`
             (inside the pinned packit image, because
             `bootstrap_upstream_sources.py` needs `rpmspec`), regenerates
-            `.packit.yaml` via `tools/render_packit_config.py --write`, and
-            passes `pytest`, `tools/validate.py` and
+            `.packit.yaml` via `tools/render_packit_config.py --write`,
+            refreshes the inventory counts in `docs/architecture.md` via
+            `tools/render_architecture_counts.py --write`, and passes
+            `pytest`, `tools/validate.py` and
             `tools/check_workflow_quoting.py` before opening.
 
             Review and patch the snapshot here before enabling it in a rebuild set.
-
-            — hive: backend=omp model=minimax-code/MiniMax-M3
