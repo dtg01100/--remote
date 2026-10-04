@@ -18,8 +18,9 @@
       "total": 38
     },
     "long-tail": {
+      "already_recipe": 8,
       "manifest_wants": 1,
-      "pending": 183,
+      "pending": 175,
       "total": 184
     },
     "power": {
@@ -2112,42 +2113,42 @@
     {
       "area": "long-tail",
       "name": "plymouth",
-      "state": "pending"
+      "state": "already_recipe"
     },
     {
       "area": "long-tail",
       "name": "plymouth-core-libs",
-      "state": "pending"
+      "state": "already_recipe"
     },
     {
       "area": "long-tail",
       "name": "plymouth-graphics-libs",
-      "state": "pending"
+      "state": "already_recipe"
     },
     {
       "area": "long-tail",
       "name": "plymouth-plugin-label",
-      "state": "pending"
+      "state": "already_recipe"
     },
     {
       "area": "long-tail",
       "name": "plymouth-plugin-two-step",
-      "state": "pending"
+      "state": "already_recipe"
     },
     {
       "area": "long-tail",
       "name": "plymouth-scripts",
-      "state": "pending"
+      "state": "already_recipe"
     },
     {
       "area": "long-tail",
       "name": "plymouth-system-theme",
-      "state": "pending"
+      "state": "already_recipe"
     },
     {
       "area": "long-tail",
       "name": "plymouth-theme-spinner",
-      "state": "pending"
+      "state": "already_recipe"
     },
     {
       "area": "long-tail",
@@ -2807,9 +2808,9 @@
   ],
   "issue": "projectbluefin/utah-packages#308",
   "states": {
-    "already_recipe": 8,
+    "already_recipe": 16,
     "manifest_wants": 1,
-    "pending": 542
+    "pending": 534
   },
   "totals": {
     "backlog": 551,

@@ -1,13 +1,16 @@
 ---
 name: factory-build-backlog
-description: Track the 551-name factory build backlog from projectbluefin/utah-packages#308 — the catalog, the auditor, and the per-area rollup.
+description: Track the factory build backlog from projectbluefin/utah-packages#308 — the catalog, the auditor, and the per-area rollup.  Live totals live in the report; do not hard-code them.
 ---
 
 # Factory build backlog
 
-The Bluefin-vs-Utah bare-metal audit on 2026-09-30 found 551 names in
-neither the pinned factory repo nor the Hummingbird supply; each one is a
-candidate factory build or an explicit wontfix. The backlog catalog
+The Bluefin-vs-Utah bare-metal audit on 2026-09-30 found a set of names
+in neither the pinned factory repo nor the Hummingbird supply (the
+audit's original total — 551 — is the starting point; live totals
+live in `reports/factory-build-backlog.json` and shift every time a
+gap closes or a recipe lands). Each name is a candidate factory build
+or an explicit wontfix. The backlog catalog
 (`config/factory-build-backlog.toml`) is the source of truth: every name
 lives in exactly one of the ten issue-aligned areas, and leaving the
 backlog requires a matching `[resolved]` or `[wontfix]` entry.
@@ -16,10 +19,10 @@ backlog requires a matching `[resolved]` or `[wontfix]` entry.
 
 | Surface | Purpose |
 | --- | --- |
-| `config/factory-build-backlog.toml` | The catalog: 551 names grouped by area |
+| `config/factory-build-backlog.toml` | The catalog: names grouped by area (see the report for the live count) |
 | `tools/factory_build_backlog.py` | Auditor: classifies each name against the live repo state |
-| `reports/factory-build-backlog.json` | Committed snapshot; regenerate with a plain run of the auditor |
-| `Justfile` `factory-build-backlog` recipe | Runs `--check` against the working tree |
+| `reports/factory-build-backlog.json` | Committed snapshot; live totals (backlog / pending / already_recipe / manifest_wants / resolved / wontfix) — regenerate with a plain run of the auditor |
+| `Justfile` `factory-build-backlog` recipe | Runs `--check` against the working tree (wired into `check` so every PR that drifts the report fails before merge) |
 
 The snapshot is deterministic: the report carries no wall-clock field, so a
 run that changes nothing rewrites the file byte-for-byte and leaves the tree
