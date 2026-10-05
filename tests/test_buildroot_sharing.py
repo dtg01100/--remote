@@ -209,6 +209,23 @@ class BuildRootPinTests(unittest.TestCase):
         self.assertIn("ghcr.io/projectbluefin/utah-buildroot", refresh)
         self.assertIn("schedule:", refresh)
 
+    def test_a_workflow_run_listener_validates_the_refreshed_pin(self) -> None:
+        # peter-evans/create-pull-request opens the chore/buildroot-mirror
+        # PR with the workflow's own GITHUB_TOKEN, so GitHub does not start a
+        # pull_request workflow for the resulting PR (#377): validate.yml
+        # would never see the new pin before merge. A workflow_run listener
+        # follows up on completion of the bot workflow, in this repository's
+        # own context, so a same-repo checkout is safe and the validation
+        # steps can re-run against the branch head.
+        listener = (WORKFLOWS / "bot-pr-validate.yml").read_text()
+        self.assertIn("workflow_run:", listener)
+        self.assertIn("Refresh the build-root mirror", listener)
+        self.assertIn("python3 tools/validate.py", listener)
+        # checkout must name the workflow's head SHA, not default to main:
+        # the bot pushed chore/buildroot-mirror and we want exactly that
+        # commit, not whatever main moved to.
+        self.assertIn("github.event.workflow_run.head_sha", listener)
+
 
 if __name__ == "__main__":
     unittest.main()

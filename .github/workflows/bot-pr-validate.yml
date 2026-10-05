@@ -1,0 +1,127 @@
+# Validate the config that bot PRs propose.
+#
+# peter-evans/create-pull-request opens the chore/buildroot-mirror,
+# bump/upstream-sources, and import/rawhide-<pkg> PRs with the workflow's
+# own GITHUB_TOKEN, and GitHub deliberately does not run pull_request
+# workflows for events it caused: a GITHUB_TOKEN-opened PR starts no checks,
+# so validate.yml never exercises the new pin, lock, recipes, or imports
+# before a maintainer approves the PR. The first three weekly refreshes after
+# that landed had no checks at all (issue #377, runs reported as "0 checks").
+#
+# The same gap closed for the daily bump already, but on a different seam:
+# bump-upstream-gate.yml is workflow_dispatch'd from the bump workflow and
+# itself calls the rebuild, so its checks appear on the PR because the
+# dispatched run is a pull_request event for a token that GitHub trusts
+# (the bot user opened the dispatch). Buildroot and import are smaller
+# changes -- a pin/lock move or a recipe copy -- so config validation is
+# what they need, not a rebuild.
+#
+# workflow_run fires after the bot workflow completes, in this repository's
+# own context, so the checkout below is a same-repo pull_request check out for
+# every trigger: the bot workflow pushes the branch itself, never a fork.
+# pull_request_target / workflow_run over a fork PR is the case the unsafe
+# checkout input exists for, and it is not this one.
+
+name: Validate bot pull requests
+
+permissions:
+  contents: read
+  pull-requests: read
+
+on:
+  workflow_run:
+    workflows:
+      - Refresh the build-root mirror
+      - Bump upstream source locks
+      - Import Rawhide package
+    types:
+      - completed
+
+jobs:
+  validate:
+    # Only the workflows that actually opened a pull request. A bot workflow
+    # that ran to completion but produced no PR (no upstream release to bump,
+    # no rawhide update to import) is not a PR we need to gate. The chained
+    # null checks are intentional: an empty pull_requests array reads as a
+    # null at [0], and a PR entry without a head SHA is the legacy form that
+    # pre-dates the workflow_run context.
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.pull_requests[0] != null &&
+      github.event.workflow_run.pull_requests[0].head.sha != null
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # write is scoped here, not at the workflow level, because only the
+      # gh pr comment step on failure needs it; the validation runs are
+      # read-only.
+      pull-requests: write
+    steps:
+      - name: Note the head commit and pull request being followed up on
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "head: $BRANCH @ $SHA"
+          echo "pull request: $REPOSITORY#$PR_NUMBER"
+          test -n "$SHA"
+          test -n "$BRANCH"
+          test -n "$PR_NUMBER"
+      # The bot workflow pushed this branch itself, so the same-repo checkout
+      # is safe; allow-unsafe-pr-checkout is for fork PRs and would be wrong
+      # to add here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+      - name: Validate factory configuration
+        run: |
+          # gate
+          python3 tools/validate.py
+      - name: Validate the factory onboarding contract
+        run: |
+          # gate
+          python3 tools/factory_contract.py
+      - name: Workflow build-script quoting
+        run: |
+          # gate
+          python3 tools/check_workflow_quoting.py
+      - name: Runtime contract
+        run: |
+          # gate
+          python3 tools/runtime_contract.py \
+            config/bluefin-packages.toml config/runtime-contract.toml --check
+      - name: Install test dependencies
+        run: |
+          pip install --disable-pip-version-check pytest==8.3.5 pyyaml==6.0.3
+      - name: Unit tests
+        run: |
+          # gate
+          python3 -m pytest tests -q
+      # The status of this run is what shows up on the PR's checks tab. A
+      # passing run names the validation it did; a failing run carries the
+      # check name, the diff that broke it, and the job log. The pull
+      # request's "checks" list goes from "0 checks" to one per step above.
+      - name: Comment on the pull request with the validation outcome
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          gh pr comment "$PR_NUMBER" -R "$REPOSITORY" --body "\
+            ### Validation failed for $WORKFLOW
+
+            The bot pull request at \`$SHA\` failed one of the validation
+            steps in \`bot-pr-validate.yml\`. Inspect the [workflow run
+            log]($RUN_URL) and fix the cause before merging.
+
+            The PR is still mergeable; this comment is informational. A
+            maintainer should rerun this workflow once the cause is fixed."
