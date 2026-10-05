@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Refresh the inventory counts ``docs/architecture.md`` quotes.
 
-The Coverage section is hand-written prose that publishes five concrete
+The Coverage section is hand-written prose that publishes six concrete
 numbers:
 
 1. ``ls -d packages/*/ | wc -l``  →  ``len(inventory(root))``
@@ -126,11 +126,20 @@ def main() -> int:
         default=ROOT,
         help="Repository root (default: %(default)s).",
     )
+    parser.add_argument(
+        "--doc",
+        type=Path,
+        default=None,
+        help="Override the doc path (default: <root>/docs/architecture.md). "
+        "Used by tests to render against a fixture copy without standing up "
+        "a full packages/ tree.",
+    )
     args = parser.parse_args()
 
     # DOC follows --root so --root <elsewhere> rewrites the other tree's doc
-    # with that tree's counts, not this checkout's.
-    doc = args.root / "docs" / "architecture.md"
+    # with that tree's counts, not this checkout's. --doc overrides the path
+    # while keeping the inventory sourced from --root.
+    doc = args.doc if args.doc is not None else args.root / "docs" / "architecture.md"
     original = doc.read_text(encoding="utf-8")
     rendered = render(original, args.root)
     if rendered == original:
