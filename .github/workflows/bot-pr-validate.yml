@@ -10,17 +10,24 @@
 #
 # The same gap closed for the daily bump already, but on a different seam:
 # bump-upstream-gate.yml is workflow_dispatch'd from the bump workflow and
-# itself calls the rebuild, so its checks appear on the PR because the
-# dispatched run is a pull_request event for a token that GitHub trusts
-# (the bot user opened the dispatch). Buildroot and import are smaller
-# changes -- a pin/lock move or a recipe copy -- so config validation is
-# what they need, not a rebuild.
+# itself calls the rebuild. Its check suite appears on the PR because the
+# dispatched run is workflow_dispatch from this repository's own GITHUB_TOKEN
+# (the same token the bot workflow used), so GitHub attaches it to the
+# dispatching PR head SHA. Buildroot and import are smaller changes -- a
+# pin/lock move or a recipe copy -- so config validation is what they need,
+# not a rebuild.
 #
 # workflow_run fires after the bot workflow completes, in this repository's
-# own context, so the checkout below is a same-repo pull_request check out for
-# every trigger: the bot workflow pushes the branch itself, never a fork.
+# own context, so the checkout below is a same-repo pull_request check out
+# for every trigger: the bot workflow pushes the branch itself, never a fork.
 # pull_request_target / workflow_run over a fork PR is the case the unsafe
 # checkout input exists for, and it is not this one.
+#
+# The bot workflows run on `schedule`/`workflow_dispatch` against `main`, so
+# workflow_run.head_sha/head_branch describe the run's own context, which is
+# main's HEAD -- not the bot's PR. The PR head lives at
+# pull_requests[0].head.{sha,ref}; checkout uses that and the validation
+# steps are pinned to it.
 
 name: Validate bot pull requests
 
@@ -59,8 +66,8 @@ jobs:
     steps:
       - name: Note the head commit and pull request being followed up on
         env:
-          SHA: ${{ github.event.workflow_run.head_sha }}
-          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.pull_requests[0].head.sha }}
+          BRANCH: ${{ github.event.workflow_run.pull_requests[0].head.ref }}
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           REPOSITORY: ${{ github.repository }}
         run: |
@@ -72,10 +79,11 @@ jobs:
           test -n "$PR_NUMBER"
       # The bot workflow pushed this branch itself, so the same-repo checkout
       # is safe; allow-unsafe-pr-checkout is for fork PRs and would be wrong
-      # to add here.
+      # to add here. Checkout the PR's head SHA (workflow_run.head_sha is
+      # main's HEAD for the trigger workflows, not the bot PR).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.pull_requests[0].head.sha }}
           fetch-depth: 1
       - name: Validate factory configuration
         run: |
@@ -113,7 +121,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           WORKFLOW: ${{ github.event.workflow_run.name }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
+          SHA: ${{ github.event.workflow_run.pull_requests[0].head.sha }}
         run: |
           set -euo pipefail
           gh pr comment "$PR_NUMBER" -R "$REPOSITORY" --body "\
