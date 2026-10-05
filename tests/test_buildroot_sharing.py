@@ -221,10 +221,24 @@ class BuildRootPinTests(unittest.TestCase):
         self.assertIn("workflow_run:", listener)
         self.assertIn("Refresh the build-root mirror", listener)
         self.assertIn("python3 tools/validate.py", listener)
-        # checkout must name the workflow's head SHA, not default to main:
-        # the bot pushed chore/buildroot-mirror and we want exactly that
-        # commit, not whatever main moved to.
-        self.assertIn("github.event.workflow_run.head_sha", listener)
+        # Checkout must name the *PR's* head SHA, not the workflow_run's:
+        # refresh-buildroot.yml runs on schedule against main, and a
+        # workflow_run listener that pins workflow_run.head_sha validates
+        # main instead of the bot's PR and never attaches a check to it.
+        # The PR head lives under workflow_run.pull_requests[0].head.{sha,ref}.
+        # Refuse bare workflow_run.head_sha in the YAML body (non-comment
+        # lines) so this defect cannot return; the explanation above is fine
+        # in a comment.
+        body = "\n".join(
+            line for line in listener.splitlines() if not line.lstrip().startswith("#")
+        )
+        self.assertNotIn("workflow_run.head_sha", body)
+        self.assertIn(
+            "workflow_run.pull_requests[0].head.sha", body
+        )
+        self.assertIn(
+            "workflow_run.pull_requests[0].head.ref", body
+        )
 
 
 if __name__ == "__main__":
