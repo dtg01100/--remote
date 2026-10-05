@@ -38,10 +38,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # The token is mounted into the docker run as GITHUB_TOKEN by
-          # default; disable the credential helper so a leaked rpmspec
-          # expansion (an unreviewed spec the import step just fetched)
-          # cannot read it.
+          # The checkout's `.git/config` carries the GITHUB_TOKEN credential
+          # inside the mounted workspace; an unreviewed rpmspec expansion
+          # (an imported dist-git spec the next step just fetched) could read
+          # it. Disable the credential helper so that path is closed; the
+          # docker run itself only passes -e PACKAGE.
           persist-credentials: false
       - name: Install test dependencies
         # ubuntu-24.04 does not ship pytest / pyyaml; the gate step below
@@ -63,6 +64,12 @@ jobs:
         # bootstrap_upstream_sources.py needs rpmspec to expand the imported
         # spec; the ubuntu-24.04 runner does not ship it. Run inside the
         # pinned packit image (digest mirrors .github/workflows/packit-srpm-chunk.yml).
+        # Security — the docker run mounts the whole checkout rw, so rpmspec
+        # macros in the just-fetched spec could rewrite tools/*.py; the host
+        # runs those scripts on lines 86+. Mitigated by persist-credentials:
+        # false (no token reachable from the container), by passing -e PACKAGE
+        # only (no GITHUB_TOKEN), and by add-paths on line 109 bounding what
+        # the workflow can commit.
         env:
           PACKAGE: ${{ inputs.package }}
         run: |
@@ -70,7 +77,7 @@ jobs:
             -e PACKAGE \
             -v "$PWD:/workspace:Z" \
             -w /workspace \
-            quay.io/packit/packit:latest@sha256:fed8ce4b0ef1c2778e6d4f18723b208f1b4c7f1115d8a33b8507c9f9c78765b5 bash -exc '
+            quay.io/packit/packit:latest@sha256:fed8ce4b0ef1c2778e6d4f18723b208f1b4c7f1115d8a33b8507c9f2c78765b5 bash -exc '
               git config --global --add safe.directory "*"
               python3 tools/bootstrap_upstream_sources.py \
                 --package "$PACKAGE" \

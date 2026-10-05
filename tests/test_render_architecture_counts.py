@@ -89,13 +89,19 @@ def test_renderer_is_a_noop_when_doc_is_current() -> None:
     )
 
 
-def test_renderer_rewrites_every_claim_to_match_the_inventory() -> None:
-    """Round-trip: rewrite with --write, then re-read the doc and assert
-    every claim matches.  Tests the regex patterns, not just the
-    inventory; if a pattern silently stops matching, this test catches it.
+def test_renderer_rewrites_every_claim_to_match_the_inventory(
+    tmp_path: Path,
+) -> None:
+    """Round-trip: rewrite with --write into a copy of the doc, then re-read
+    the doc and assert every claim matches.  Tests the regex patterns, not
+    just the inventory; if a pattern silently stops matching, this test
+    catches it.  Render into a fixture copy via ``--doc`` so a test run
+    never mutates the tracked architecture.md (#366 review).
     """
+    fixture_doc = tmp_path / "architecture.md"
+    fixture_doc.write_text(DOC.read_text(encoding="utf-8"), encoding="utf-8")
     result = subprocess.run(
-        [sys.executable, str(RENDERER), "--write"],
+        [sys.executable, str(RENDERER), "--write", "--doc", str(fixture_doc)],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -103,7 +109,7 @@ def test_renderer_rewrites_every_claim_to_match_the_inventory() -> None:
     )
     assert result.returncode == 0, result.stderr
 
-    text = DOC.read_text(encoding="utf-8")
+    text = fixture_doc.read_text(encoding="utf-8")
     expected = _expected_counts()
     n = expected["n_recipes"]
     assert _number_after_line(text, "| `ls -d packages/*/") == str(n)
