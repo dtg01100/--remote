@@ -516,30 +516,16 @@ adds a package. Keep it that way; see
 
 ## 24. A local parser in two tools stays local until both land together
 
-**What happened.** `tools/source_pipeline.py` and `tools/bootstrap_upstream_sources.py`
-each shipped their own `sources`-file parser, and both regexes were the
-SHA-512-only `SHA512 (file) = <128 hex>` form. #351 (still open) proposes
-teaching `source_pipeline.py`'s parser both the BSD lines and the legacy
-`<32 hex>  file` md5sum lines that ten carried recipes still use (#326);
-until it lands, `source_pipeline.py` still matches only SHA-512 lines.
-`bootstrap_upstream_sources.py`'s `manifest_pins` had the same SHA-512-only
-form (#386), so a generated-source recipe whose pin was recorded in md5
-(`<32 hex>  pkg-1.0.tar.gz`) tripped `prove_generated` with a SHA-512
-mismatch on every `tools/bootstrap_upstream_sources.py --package <name>` run,
-and `--merge` of an explicitly-selected recipe with an md5 pin tripped
-the same comparison in `main()`. The check ran every byte through SHA-512
-and silently compared it to an MD5, which always disagrees.
-
-**Rule.** When two tools read the same Fedora manifest, they have to
-agree on what counts as a line. Until #351 lands and one parser is shared between
-`source_pipeline.source_manifest()` and
-`bootstrap_upstream_sources.manifest_pins()`, both functions must track
-their own `(digest, algorithm)` pair (`"sha512"` or `"md5"`) and hash
-generated artifacts or upstream bytes in that same algorithm before
-comparing. Compute every digest from the same bytes in one pass -- never
-re-download to get the md5, or the pin is checked against a different body
-than the SHA-512 that gets locked. A shared helper is the right destination -- extract it once
-both parsers land -- but in the meantime every place that compares a
+**Rule.** When two tools read the same Fedora manifest, they must agree
+on what counts as a line. Each tool's parser tracks `(digest, algorithm)`
+per pin (`"sha512"` for the BSD `SHA512 (file) = <128 hex>` form, `"md5"`
+for the legacy `<32 hex>  file` md5sum form that some carried recipes
+still use). Byte comparisons hash the body in the recorded algorithm;
+SHA-512 must never be silently compared against an MD5 pin, and vice
+versa. Compute every digest from the same bytes in one pass -- never
+re-download to get a second algorithm, or the pin is checked against a
+different body than the digest that gets locked. A shared parser helper
+is the right destination; until it lands, every place that compares a
 manifest pin against computed bytes needs an algorithm branch, not a
 hard-coded SHA-512. Tests must cover: the parser recognising each form
 (`test_parses_legacy_md5sum_lines`, `test_mixes_sha512_and_md5_in_one_manifest`),
