@@ -13,9 +13,10 @@ FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 # Legacy Fedora dist-git `sources` lines pin the MD5 with the hash first and
 # the filename second: `<32 hex>  file`. The factory requires a SHA-512 pin
 # for every entry -- MD5 is collision-weak, and the lookaside fetch path is
-# gated only by the manifest's recorded digest. PR #351 taught source_pipeline
-# to read the legacy form, which closed a correctness gap; this check closes
-# the security gap by refusing the form on a live tree.
+# gated only by the manifest's recorded digest. source_pipeline parses only
+# the SHA-512 form today, so md5 lines are inert; this check refuses the
+# legacy form on a live tree so it cannot become a fetch path later (it
+# pre-empts the md5 parsing proposed in open PR #351).
 LEGACY_MD5_LINE = re.compile(r"^[0-9a-f]{32}\s+\S+")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -210,8 +211,10 @@ def check_sources_digests(root: Path) -> None:
     """Fail when any `sources` file still pins a bundled tarball by MD5.
 
     The legacy md5 form (`<32 hex>  file`) is what older dist-git recipes
-    shipped and what `source_manifest` parses as a stop-gap so a stale entry
-    cannot crash the build. Every carried recipe must use the SHA-512 form
+    shipped. `source_pipeline` currently ignores it (only the SHA-512 form is
+    parsed), so such a line is inert rather than a live fetch path; refusing
+    it here pre-empts any future md5 parsing (e.g. open PR #351) from
+    becoming reachable. Every carried recipe must use the SHA-512 form
     instead -- MD5 is collision-weak, the lookaside fetch path is gated only
     by the manifest's recorded digest, and the same digest is the only thing
     standing between a published RPM and a substituted archive
