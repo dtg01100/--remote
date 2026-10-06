@@ -83,8 +83,9 @@ def prove_generated(candidate: dict, package_dir: Path) -> str:
     being silently downgraded to SHA-512, which would always disagree.
     """
     script = Path(__file__).resolve().parent / "generated_sources.py"
+    pin = manifest_pins(package_dir).get(candidate["filename"])
     digests: list[str] = []
-    md5_digests: list[str] = []
+    pin_digests: list[str] = []
     for _ in range(2):
         with tempfile.TemporaryDirectory(prefix="generated-source-") as work:
             subprocess.run(
@@ -95,16 +96,16 @@ def prove_generated(candidate: dict, package_dir: Path) -> str:
             if not artifact.is_file():
                 raise ValueError(f"generation did not produce {candidate['filename']}")
             digests.append(generated_sources.sha512_path(artifact))
-            md5_digests.append(_digest_path(artifact, "md5"))
+            if pin is not None and pin[1] != "sha512":
+                pin_digests.append(generated_sources.digest_path(artifact, pin[1]))
     if digests[0] != digests[1]:
         raise ValueError(
             f"non-deterministic generation for {candidate['name']}: "
             f"{digests[0]} != {digests[1]}"
         )
-    pin = manifest_pins(package_dir).get(candidate["filename"])
     if pin is not None:
         expected, algorithm = pin
-        actual = digests[0] if algorithm == "sha512" else md5_digests[0]
+        actual = digests[0] if algorithm == "sha512" else pin_digests[0]
         if actual != expected:
             label = "SHA-512" if algorithm == "sha512" else "MD5"
             raise ValueError(
@@ -113,18 +114,6 @@ def prove_generated(candidate: dict, package_dir: Path) -> str:
                 f"repin packages/{candidate['name']}/sources to the generated digest first"
             )
     return digests[0]
-
-
-def _digest_path(path: Path, algorithm: str) -> str:
-    """Hash a file with ``algorithm``; rejects anything other than md5/sha512."""
-    if algorithm not in ("md5", "sha512"):
-        raise ValueError(f"unsupported hash algorithm: {algorithm}")
-    # Pin comparison only, not a security use; keeps FIPS-mode Python working.
-    value = hashlib.new(algorithm, usedforsecurity=False)
-    with path.open("rb") as source:
-        for block in iter(lambda: source.read(1024 * 1024), b""):
-            value.update(block)
-    return value.hexdigest()
 
 
 def merge_candidates(existing: dict, candidates: list[dict]) -> dict:

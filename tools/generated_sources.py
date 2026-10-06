@@ -67,7 +67,15 @@ PYDANTIC_CORE_INPUT_SHA512 = {
 
 
 def sha512_path(path: Path) -> str:
-    value = hashlib.sha512()
+    return digest_path(path, "sha512")
+
+
+def digest_path(path: Path, algorithm: str) -> str:
+    """Hash a file with ``algorithm`` (``sha512`` or a legacy ``md5`` pin)."""
+    if algorithm not in ("md5", "sha512"):
+        raise ValueError(f"unsupported hash algorithm: {algorithm}")
+    # MD5 is only compared against legacy manifest pins; keeps FIPS-mode Python working.
+    value = hashlib.new(algorithm, usedforsecurity=algorithm != "md5")
     with path.open("rb") as source:
         for block in iter(lambda: source.read(1024 * 1024), b""):
             value.update(block)

@@ -514,6 +514,18 @@ touch the source lock (`sources` or `Version:` changed), and fails the run if
 adds a package. Keep it that way; see
 [`rawhide-recipe-reimports.md`](rawhide-recipe-reimports.md).
 
+## Imported specs must not rewrite trusted proposal tools
+
+`rpmspec` expands executable macros. `persist-credentials: false` and a PR
+`add-paths` list do not make a writable checkout safe: a spec could replace a
+host script which runs later with the write token. The import job therefore
+has `contents: read`, mounts only trusted tools and the selected recipe
+read-only, and gives the container a disposable JSON output directory. A fresh
+proposal job accepts exactly one recipe and source candidate, rejects links,
+then renders configuration with its own trusted checkout. No artifact script
+runs in the write-permission job. Keep these job and filesystem boundaries
+when extending import automation.
+
 ## 24. A local parser in two tools stays local until both land together
 
 **Rule.** When two tools read the same Fedora manifest, they must agree
