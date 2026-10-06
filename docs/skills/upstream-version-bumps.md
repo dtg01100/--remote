@@ -56,12 +56,12 @@ anything compiled.
 > fails. `rewrite_sources()` only writes the SHA-512 form for the primary
 > pin; bundled entries are kept verbatim, so a legacy md5 line on a bundled
 > entry survives the bump and the tree then fails `check_sources_digests`
-> (see `tools/upstream_bump.py:624-628`). Repin bundled entries by hand;
+> (see `rewrite_sources()` in `tools/upstream_bump.py`). Repin bundled entries by hand;
 > a hand edit that re-introduces one fails the gate.
 
 For a manifest repin, distinguish the primary Source0 from bundled lookaside
 objects. The nine legacy primary pins in #388 already had SHA-512 entries
-in `source_locks.json`: streamed downloads matched those locks and the new
+in `config/upstream-sources.json`: streamed downloads matched those locks and the new
 manifest lines. That changes the recorded algorithm without changing source
 bytes or requiring a new lookaside object. A bundled-file repin needs its own
 verified bytes and reachable digest URL; a passing format check proves neither.
