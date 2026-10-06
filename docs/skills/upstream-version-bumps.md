@@ -51,9 +51,9 @@ anything compiled.
 
 > MD5 is collision-weak; the lookaside fetch path is gated only by the
 > manifest's recorded digest (#385). `tools/validate.py`
-> `check_sources_digests` refuses any `sources` file that still pins a
-> bundled tarball by MD5. `rewrite_sources()` only writes the SHA-512 form,
-> so a fresh bump converts an old md5 line at the same time; a hand edit
+> `check_sources_digests` refuses any `sources` file with a line that is
+> not a `SHA512 (file) = <128 hex>` pin, so an MD5 pin in either form
+> fails. `rewrite_sources()` only writes the SHA-512 form, so a fresh bump converts an old md5 line at the same time; a hand edit
 > that re-introduces one fails the gate.
 
 `check_bumpable()` refuses, before fetching anything, two

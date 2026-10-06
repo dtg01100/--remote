@@ -377,6 +377,18 @@ class ValidateScriptTests(unittest.TestCase):
         assert "sources manifest pins a bundled tarball by MD5" in result.stderr
         assert "deadbeefdeadbeefdeadbeefdeadbeef  example-1.tar.xz" in result.stderr
 
+    def test_rejects_a_bsd_form_md5_or_sha256_pin(self) -> None:
+        # The BSD form can name a weaker algorithm too; only SHA-512 passes.
+        for line in (
+            "MD5 (example-1.tar.xz) = deadbeefdeadbeefdeadbeefdeadbeef",
+            "SHA256 (example-1.tar.xz) = " + "0" * 64,
+        ):
+            with self.subTest(line=line):
+                result = self.check(sources_files={"example": line + "\n"})
+                assert result.returncode != 0
+                assert "sources manifest pins a bundled tarball by MD5" in result.stderr
+                assert line in result.stderr
+
     def test_an_empty_sources_file_is_accepted(self) -> None:
         # A spec with no Source line carries no bundled pin; this change
         # deletes fxload's stale md5 line and leaves the file empty, which
