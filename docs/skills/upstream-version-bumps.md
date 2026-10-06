@@ -53,8 +53,9 @@ anything compiled.
 > manifest's recorded digest (#385). `tools/validate.py`
 > `check_sources_digests` refuses any `sources` file with a line that is
 > not a `SHA512 (file) = <128 hex>` pin, so an MD5 pin in either form
-> fails. `rewrite_sources()` only writes the SHA-512 form, so a fresh bump converts an old md5 line at the same time; a hand edit
-> that re-introduces one fails the gate.
+> fails. `rewrite_sources()` writes the SHA-512 form only for the primary
+> tarball pin; it keeps every bundled line verbatim, so a bundled md5 line
+> survives a bump and still fails the gate until it gets a hand repin.
 
 For a manifest repin, distinguish the primary Source0 from bundled lookaside
 objects. The nine legacy primary pins in #388 already had SHA-512 entries
