@@ -378,9 +378,9 @@ class ValidateScriptTests(unittest.TestCase):
         assert "deadbeefdeadbeefdeadbeefdeadbeef  example-1.tar.xz" in result.stderr
 
     def test_an_empty_sources_file_is_accepted(self) -> None:
-        # A spec with no Source line carries no bundled pin; PR #351 deletes
-        # fxload's stale md5 line and leaves the file empty, which has to
-        # pass.
+        # A spec with no Source line carries no bundled pin; this change
+        # deletes fxload's stale md5 line and leaves the file empty, which
+        # has to pass.
         result = self.check(sources_files={"example": ""})
         assert result.returncode == 0, result.stdout + result.stderr
 
