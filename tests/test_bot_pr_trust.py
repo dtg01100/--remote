@@ -20,6 +20,15 @@ class BotPrTrustTests(unittest.TestCase):
         self.pr["headRefName"] = "chore/buildroot-mirror"
         self.check()
 
+    def test_accepts_import_head_with_plus_in_package_name(self):
+        # Fedora dist-git package names use the ASCII character set
+        # ``[a-zA-Z0-9-._+]``; ``+`` is reserved for Python version
+        # suffixes (e.g. ``libsigc++30``). Rejecting those refs makes
+        # the validator fail before any gate runs, so the report job
+        # exits 1 without commenting on the import itself (#402).
+        self.pr["headRefName"] = "import/rawhide-libsigc++30"
+        self.check()
+
     def test_rejects_foreign_closed_human_or_wrong_base_pull_requests(self):
         for key, value in (("state", "CLOSED"), ("baseRefName", "testing"),
                            ("headRepository", {"nameWithOwner": "someone/utah-packages"}),
