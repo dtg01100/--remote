@@ -51,10 +51,10 @@ dependants for no change in bytes.
    Version moves stay with `tools/upstream_bump.py`: Fedora is a recipe feed,
    not a source-update feed. A `Release:` change -- including the
    literal-`12%{?dist}` -> `%autorelease` swap that turned libnma into a
-   1.10.6-12 -> 1.10.6-1 downgrade (issue #382, reverted on `main` by this
-   PR's `chore(libnma): restore literal Release 12 ...` commit; see also
-   #400) -- is left for a human: `%autorelease` resolves against the
-   build target's tag, so a value of 14 in Koji becomes 1 here.
+   1.10.6-12 -> 1.10.6-1 downgrade (issue #382, reverted on `main` by
+   PR #383; see also issue #400) -- is left for a human: `%autorelease`
+   resolves against the build target's tag, so a value of 14 in Koji
+   becomes 1 here.
 7. No added `BuildRequires` item (literal, unexpanded; a tightened version
    constraint counts as added) and no newly added `%generate_buildrequires`.
 
