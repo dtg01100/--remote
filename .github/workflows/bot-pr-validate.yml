@@ -1,33 +1,28 @@
 # Validate the config that bot PRs propose.
 #
-# peter-evans/create-pull-request opens the chore/buildroot-mirror,
-# bump/upstream-sources, and import/rawhide-<pkg> PRs with the workflow's
-# own GITHUB_TOKEN, and GitHub deliberately does not run pull_request
-# workflows for events it caused: a GITHUB_TOKEN-opened PR starts no checks,
-# so validate.yml never exercises the new pin, lock, recipes, or imports
-# before a maintainer approves the PR. The first three weekly refreshes after
-# that landed had no checks at all (issue #377, runs reported as "0 checks").
+# peter-evans/create-pull-request opens the chore/buildroot-mirror and
+# import/rawhide-<pkg> PRs with the workflow's own GITHUB_TOKEN, and GitHub
+# deliberately does not run pull_request workflows for events it caused: a
+# GITHUB_TOKEN-opened PR starts no checks, so validate.yml never exercises
+# the new pin, lock, recipes, or imports before a maintainer approves the
+# PR. The first three weekly refreshes after that landed had no checks at
+# all (issue #377, runs reported as "0 checks").
 #
 # The same gap closed for the daily bump already, but on a different seam:
 # bump-upstream-gate.yml is workflow_dispatch'd from the bump workflow and
 # itself calls the rebuild. Its check suite appears on the PR because the
 # dispatched run is workflow_dispatch from this repository's own GITHUB_TOKEN
 # (the same token the bot workflow used), so GitHub attaches it to the
-# dispatching PR head SHA. Buildroot and import are smaller changes -- a
-# pin/lock move or a recipe copy -- so config validation is what they need,
-# not a rebuild.
+# dispatching PR head SHA. buildroot and import use this workflow for the
+# same reason: dispatch from the bot workflow's last step, the workflow
+# checks out the PR's head SHA, and the check suite attaches to the PR.
 #
-# workflow_run fires after the bot workflow completes, in this repository's
-# own context, so the checkout below is a same-repo pull_request check out
-# for every trigger: the bot workflow pushes the branch itself, never a fork.
-# pull_request_target / workflow_run over a fork PR is the case the unsafe
-# checkout input exists for, and it is not this one.
-#
-# The bot workflows run on `schedule`/`workflow_dispatch` against `main`, so
-# workflow_run.head_sha/head_branch describe the run's own context, which is
-# main's HEAD -- not the bot's PR. The PR head lives at
-# pull_requests[0].head.{sha,ref}; checkout uses that and the validation
-# steps are pinned to it.
+# workflow_run was tried first (#378 instead) and found unable to attach
+# checks to GITHUB_TOKEN-opened bot PRs: pull_requests[] is empty for
+# schedule/workflow_dispatch triggers, so the job's if-gate never fires.
+# workflow_dispatch does not have that limitation: a dispatch from the
+# bot workflow runs in this repository's context with refs/pr (not workflow_run)
+# and its check suite attaches to the PR head SHA opened by the bot.
 
 name: Validate bot pull requests
 
@@ -36,26 +31,18 @@ permissions:
   pull-requests: read
 
 on:
-  workflow_run:
-    workflows:
-      - Refresh the build-root mirror
-      - Bump upstream source locks
-      - Import Rawhide package
-    types:
-      - completed
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Pull request number the dispatching bot workflow just opened."
+        required: true
+        type: string
 
 jobs:
   validate:
-    # Only the workflows that actually opened a pull request. A bot workflow
-    # that ran to completion but produced no PR (no upstream release to bump,
-    # no rawhide update to import) is not a PR we need to gate. The chained
-    # null checks are intentional: an empty pull_requests array reads as a
-    # null at [0], and a PR entry without a head SHA is the legacy form that
-    # pre-dates the workflow_run context.
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.pull_requests[0] != null &&
-      github.event.workflow_run.pull_requests[0].head.sha != null
+    # Resolve the PR's head SHA and branch once, then check out the same
+    # commit the PR's checks need to attach to. The dispatcher passes only the
+    # PR number; everything else is on the API.
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -64,26 +51,28 @@ jobs:
       # read-only.
       pull-requests: write
     steps:
-      - name: Note the head commit and pull request being followed up on
+      - name: Resolve the PR head SHA and branch from the PR number
+        id: resolve
         env:
-          SHA: ${{ github.event.workflow_run.pull_requests[0].head.sha }}
-          BRANCH: ${{ github.event.workflow_run.pull_requests[0].head.ref }}
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          echo "head: $BRANCH @ $SHA"
-          echo "pull request: $REPOSITORY#$PR_NUMBER"
+          head="$(gh pr view "$PR" -R "$REPOSITORY" --json headRefName,headRefOid \
+              --jq '.headRefOid + " " + .headRefName')"
+          echo "head=$head"
+          SHA="${head%% *}"
+          BRANCH="${head#* }"
           test -n "$SHA"
           test -n "$BRANCH"
-          test -n "$PR_NUMBER"
-      # The bot workflow pushed this branch itself, so the same-repo checkout
-      # is safe; allow-unsafe-pr-checkout is for fork PRs and would be wrong
-      # to add here. Checkout the PR's head SHA (workflow_run.head_sha is
-      # main's HEAD for the trigger workflows, not the bot PR).
+          {
+            echo "sha=$SHA"
+            echo "branch=$BRANCH"
+          } >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.workflow_run.pull_requests[0].head.sha }}
+          ref: ${{ steps.resolve.outputs.sha }}
           fetch-depth: 1
       - name: Validate factory configuration
         run: |
@@ -109,25 +98,19 @@ jobs:
         run: |
           # gate
           python3 -m pytest tests -q
-      # The status of this run is what shows up on the PR's checks tab. A
-      # passing run names the validation it did; a failing run carries the
-      # check name, the diff that broke it, and the job log. The pull
-      # request's "checks" list goes from "0 checks" to one per step above.
       - name: Comment on the pull request with the validation outcome
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          PR_NUMBER: ${{ inputs.pr }}
           REPOSITORY: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          WORKFLOW: ${{ github.event.workflow_run.name }}
-          SHA: ${{ github.event.workflow_run.pull_requests[0].head.sha }}
         run: |
           set -euo pipefail
           gh pr comment "$PR_NUMBER" -R "$REPOSITORY" --body "\
-            ### Validation failed for $WORKFLOW
+            ### Validation failed for the bot pull request
 
-            The bot pull request at \`$SHA\` failed one of the validation
+            The bot pull request failed one of the validation
             steps in \`bot-pr-validate.yml\`. Inspect the [workflow run
             log]($RUN_URL) and fix the cause before merging.
 
