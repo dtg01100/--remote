@@ -33,10 +33,36 @@ class ManifestPinsTests(unittest.TestCase):
             )
             self.assertEqual(
                 manifest_pins(package),
-                {"one-1.0.tar.xz": first, "two-2.0.tar.gz": second},
+                {"one-1.0.tar.xz": (first, "sha512"), "two-2.0.tar.gz": (second, "sha512")},
             )
 
-    def test_ignores_non_sha512_and_malformed_records(self) -> None:
+    def test_parses_legacy_md5sum_lines(self) -> None:
+        digest = "c" * 32
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory)
+            (package / "sources").write_text(f"{digest}  legacy-1.0.tar.gz\n")
+            self.assertEqual(
+                manifest_pins(package),
+                {"legacy-1.0.tar.gz": (digest, "md5")},
+            )
+
+    def test_mixes_sha512_and_md5_in_one_manifest(self) -> None:
+        sha, md5 = "a" * 128, "b" * 32
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory)
+            (package / "sources").write_text(
+                f"SHA512 (one-1.0.tar.xz) = {sha}\n"
+                f"{md5}  legacy-1.0.tar.gz\n"
+            )
+            self.assertEqual(
+                manifest_pins(package),
+                {
+                    "one-1.0.tar.xz": (sha, "sha512"),
+                    "legacy-1.0.tar.gz": (md5, "md5"),
+                },
+            )
+
+    def test_ignores_non_sha512_non_md5_and_malformed_records(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             package = Path(directory)
             (package / "sources").write_text(
@@ -45,6 +71,7 @@ class ManifestPinsTests(unittest.TestCase):
                 "SHA512 (upper-1.0.tar.gz) = " + "E" * 128 + "\n"
                 "not a manifest line\n"
                 "\n"
+                "abcd  no-space.tar.gz\n"  # only 4 hex chars
             )
             self.assertEqual(manifest_pins(package), {})
 
@@ -53,7 +80,7 @@ class ManifestPinsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             package = Path(directory)
             (package / "sources").write_text(f"  SHA512 (one-1.0.tar.xz) = {digest}  \n")
-            self.assertEqual(manifest_pins(package), {"one-1.0.tar.xz": digest})
+            self.assertEqual(manifest_pins(package), {"one-1.0.tar.xz": (digest, "sha512")})
 
 
 class MergeCandidatesTests(unittest.TestCase):
@@ -261,6 +288,41 @@ class ProveGeneratedTests(unittest.TestCase):
                     prove_generated(candidate, package), hashlib.sha512(b"same").hexdigest()
                 )
 
+    def test_accepts_generated_bytes_that_match_a_legacy_md5_manifest_pin(self) -> None:
+        candidate = {"name": "pkg", "filename": "pkg-1.0.tar.gz"}
+        md5 = hashlib.md5(b"same").hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory)
+            (package / "sources").write_text(f"{md5}  pkg-1.0.tar.gz\n")
+            with patch(
+                "tools.bootstrap_upstream_sources.subprocess.run",
+                side_effect=self._generator([b"same", b"same"]),
+            ):
+                # The returned digest is still SHA-512 (the lock format), but
+                # the manifest pin check is now done in MD5 so a matching
+                # legacy pin no longer rejects a recipe.
+                self.assertEqual(
+                    prove_generated(candidate, package), hashlib.sha512(b"same").hexdigest()
+                )
+
+    def test_rejects_generated_bytes_that_drift_from_a_legacy_md5_manifest_pin(self) -> None:
+        candidate = {"name": "pkg", "filename": "pkg-1.0.tar.gz"}
+        pinned = hashlib.md5(b"fedora payload").hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory)
+            (package / "sources").write_text(f"{pinned}  pkg-1.0.tar.gz\n")
+            with patch(
+                "tools.bootstrap_upstream_sources.subprocess.run",
+                side_effect=self._generator([b"ours", b"ours"]),
+            ):
+                with self.assertRaises(ValueError) as raised:
+                    prove_generated(candidate, package)
+        message = str(raised.exception)
+        self.assertIn("do not match the manifest pin", message)
+        self.assertIn("MD5", message)
+        self.assertIn(pinned, message)
+        self.assertIn("repin packages/pkg/sources", message)
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -404,7 +466,46 @@ class MainTests(unittest.TestCase):
         self.assertEqual(output["packages"], [])
         self.assertEqual(self.reasons(report)["pkg"],
                          f"upstream bytes for pkg-1.0.tar.xz do not match the pinned manifest: "
-                         f"expected {pinned}, got {served}")
+                         f"expected SHA-512 {pinned}, got SHA-512 {served}")
+
+    def test_explicit_selection_honours_a_legacy_md5_manifest_pin(self) -> None:
+        url = "https://upstream.example/legacy-1.0.tar.gz"
+        payload = b"legacy md5-pinned bytes"
+        # The test rig mocks sha512() to return (digest, filename); patch it
+        # so this test exercises the legacy-md5 code path which downloads and
+        # hashes the upstream URL itself.
+        md5 = hashlib.md5(payload).hexdigest()
+        self.fetched.clear()
+        with patch(
+            "tools.bootstrap_upstream_sources._digest_response",
+            return_value=md5,
+        ) as digest_response:
+            package = self.recipe("legacy", [(0, url)])
+            (package / "sources").write_text(f"{md5}  legacy-1.0.tar.gz\n")
+            self.serve(url, payload, "legacy-1.0.tar.gz")
+            code, output, report = self.run_main("--package", "legacy")
+        self.assertEqual(code, 0)
+        self.assertEqual(output["packages"][0]["sha512"], hashlib.sha512(payload).hexdigest())
+        self.assertEqual(report["rejected"], [])
+        digest_response.assert_called_once_with(url, "md5")
+
+    def test_explicit_selection_rejects_md5_drift_against_a_legacy_manifest_pin(self) -> None:
+        url = "https://upstream.example/legacy-1.0.tar.gz"
+        # Pin records one md5; we serve different bytes, so the comparison
+        # in the md5 algorithm must disagree and reject the recipe.
+        md5 = hashlib.md5(b"fedora's bytes").hexdigest()
+        with patch(
+            "tools.bootstrap_upstream_sources._digest_response",
+            return_value=hashlib.md5(b"upstream bytes").hexdigest(),
+        ):
+            package = self.recipe("legacy", [(0, url)])
+            (package / "sources").write_text(f"{md5}  legacy-1.0.tar.gz\n")
+            self.serve(url, b"upstream bytes", "legacy-1.0.tar.gz")
+            _, output, report = self.run_main("--package", "legacy")
+        self.assertEqual(output["packages"], [])
+        self.assertEqual(self.reasons(report)["legacy"],
+                         f"upstream bytes for legacy-1.0.tar.gz do not match the pinned manifest: "
+                         f"expected MD5 {md5}, got MD5 {hashlib.md5(b'upstream bytes').hexdigest()}")
 
     def test_default_scan_does_not_gate_on_the_manifest_pin(self) -> None:
         url = "https://upstream.example/pkg-1.0.tar.xz"

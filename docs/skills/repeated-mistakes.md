@@ -514,17 +514,38 @@ touch the source lock (`sources` or `Version:` changed), and fails the run if
 adds a package. Keep it that way; see
 [`rawhide-recipe-reimports.md`](rawhide-recipe-reimports.md).
 
-## Imported specs must not rewrite trusted proposal tools
+## 24. A local parser in two tools stays local until both land together
 
-`rpmspec` expands executable macros. `persist-credentials: false` and a PR
-`add-paths` list do not make a writable checkout safe: a spec could replace a
-host script which runs later with the write token. The import job therefore
-has `contents: read`, mounts only trusted tools and the selected recipe
-read-only, and gives the container a disposable JSON output directory. A fresh
-proposal job accepts exactly one recipe and source candidate, rejects links,
-then renders configuration with its own trusted checkout. No artifact script
-runs in the write-permission job. Keep these job and filesystem boundaries
-when extending import automation.
+**What happened.** `tools/source_pipeline.py` and `tools/bootstrap_upstream_sources.py`
+each shipped their own `sources`-file parser, and both regexes were the
+SHA-512-only `SHA512 (file) = <128 hex>` form. `source_pipeline.py`'s
+parser was fixed in #351 to recognise both the BSD lines and the legacy
+`<32 hex>  file` md5sum lines that ten carried recipes still use (#326).
+`bootstrap_upstream_sources.py`'s `manifest_pins` kept the SHA-512-only
+form (#386), so a generated-source recipe whose pin was recorded in md5
+(`<32 hex>  pkg-1.0.tar.gz`) tripped `prove_generated` with a SHA-512
+mismatch on every `tools/bootstrap_upstream_sources.py --package <name>` run,
+and `--merge` of an explicitly-selected recipe with an md5 pin tripped
+the same comparison in `main()`. The check ran every byte through SHA-512
+and silently compared it to an MD5, which always disagrees.
+
+**Rule.** When two tools read the same Fedora manifest, they have to
+agree on what counts as a line. Until #351's parser is shared between
+`source_pipeline.source_manifest()` and
+`bootstrap_upstream_sources.manifest_pins()`, both functions must track
+their own `(digest, algorithm)` pair (`"sha512"` or `"md5"`) and hash
+generated artifacts or upstream bytes in that same algorithm before
+comparing. A shared helper is the right destination -- extract it once
+both parsers land -- but in the meantime every place that compares a
+manifest pin against computed bytes needs an algorithm branch, not a
+hard-coded SHA-512. Tests must cover: the parser recognising each form
+(`test_parses_legacy_md5sum_lines`, `test_mixes_sha512_and_md5_in_one_manifest`),
+the byte-comparison honouring a matching md5 pin
+(`test_explicit_selection_honours_a_legacy_md5_manifest_pin`,
+`test_accepts_generated_bytes_that_match_a_legacy_md5_manifest_pin`),
+and the byte-comparison rejecting a mismatching md5 pin in the md5
+algorithm (`test_explicit_selection_rejects_md5_drift_against_a_legacy_manifest_pin`,
+`test_rejects_generated_bytes_that_drift_from_a_legacy_md5_manifest_pin`).
 
 ## Quick checks before pushing a fix
 
