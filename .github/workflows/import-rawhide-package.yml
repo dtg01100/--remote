@@ -28,13 +28,13 @@ on:
         default: rawhide
         type: string
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: {}
 
 jobs:
   import:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -60,31 +60,62 @@ jobs:
           python3 tools/import_rawhide.py \
             "$PACKAGE" \
             --branch "$BRANCH"
-      - name: Lock the upstream source
-        # bootstrap_upstream_sources.py needs rpmspec to expand the imported
-        # spec; the ubuntu-24.04 runner does not ship it. Run inside the
-        # pinned packit image (digest mirrors .github/workflows/packit-srpm-chunk.yml).
-        # Security — the docker run mounts the whole checkout rw, so rpmspec
-        # macros in the just-fetched spec could rewrite tools/*.py; the host
-        # runs those scripts on lines 86+. Mitigated by persist-credentials:
-        # false (no token reachable from the container), by passing -e PACKAGE
-        # only (no GITHUB_TOKEN), and by add-paths on line 109 bounding what
-        # the workflow can commit.
+      - name: Lock the upstream source in isolation
+        # Specs can execute macros. They see immutable tools/recipe data and
+        # one disposable output directory, never host scripts or credentials.
         env:
           PACKAGE: ${{ inputs.package }}
         run: |
-          docker run --rm \
+          set -euo pipefail
+          python3 -c 'import pathlib, sys; p = pathlib.Path("packages") / sys.argv[1]; assert not any(f.is_symlink() for f in p.rglob("*"))' "$PACKAGE"
+          mkdir -p "$RUNNER_TEMP/import-output"
+          docker run --rm --cap-drop=ALL --security-opt=no-new-privileges \
             -e PACKAGE \
-            -v "$PWD:/workspace:Z" \
-            -w /workspace \
+            -v "$PWD/tools:/trusted/tools:ro" \
+            -v "$PWD/packages/$PACKAGE:/input/packages/$PACKAGE:ro" \
+            -v "$RUNNER_TEMP/import-output:/output:rw" \
+            -w /input \
             quay.io/packit/packit:latest@sha256:fed8ce4b0ef1c2778e6d4f18723b208f1b4c7f1115d8a33b8507c9f2c78765b5 bash -exc '
-              git config --global --add safe.directory "*"
-              python3 tools/bootstrap_upstream_sources.py \
-                --package "$PACKAGE" \
-                --merge \
-                --output config/upstream-sources.json \
-                --report reports/import-source-bootstrap.json
+              python3 /trusted/tools/bootstrap_upstream_sources.py \
+                --root /input --package "$PACKAGE" \
+                --output /output/candidate.json --report /output/report.json
             '
+          # Only these two JSON files cross the container boundary. Recipe
+          # bytes are the untouched host-side dist-git import.
+          test ! -L "$RUNNER_TEMP/import-output/candidate.json"
+          test ! -L "$RUNNER_TEMP/import-output/report.json"
+          mkdir -p proposal/packages
+          cp -a "packages/$PACKAGE" proposal/packages/
+          cp "$RUNNER_TEMP/import-output/candidate.json" proposal/candidate.json
+          cp "$RUNNER_TEMP/import-output/report.json" proposal/report.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: import-proposal
+          path: proposal/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  propose:
+    needs: import
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: import-proposal
+          path: incoming
+      - name: Restore only recipe data using trusted tools
+        env:
+          PACKAGE: ${{ inputs.package }}
+        run: |
+          python3 -m pip install --quiet pytest==8.3.5 pyyaml==6.0.3
+          python3 -m tools.import_proposal "$PACKAGE" incoming
       - name: Regenerate the Packit config
         env:
           PACKAGE: ${{ inputs.package }}

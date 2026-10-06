@@ -36,7 +36,7 @@ request is born green: `tools/validate.py` passes on the source lock and
 Packit block, and the recipe-count tests match the inventory. Dispatch
 `.github/workflows/import-rawhide-package.yml` with the package name (the
 workflow runs the lock, the Packit-regen and the architecture-counts-refresh
-steps on `ubuntu-24.04`, and opens `import/rawhide-<name>`). The lock step fails the workflow, and no pull
+steps on `ubuntu-26.04`, and opens `import/rawhide-<name>`). The lock step fails the workflow, and no pull
 request opens, when `tools/bootstrap_upstream_sources.py --package <name>`
 rejects the recipe — for example a `Source0` hosted on Fedora
 infrastructure, a `Source0` that is not a direct HTTP(S) URL, or upstream
