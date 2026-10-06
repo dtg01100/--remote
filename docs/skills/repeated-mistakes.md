@@ -513,6 +513,16 @@ touch the source lock (`sources` or `Version:` changed), and fails the run if
 adds a package. Keep it that way; see
 [`rawhide-recipe-reimports.md`](rawhide-recipe-reimports.md).
 
+## Bot validation checks belong to the dispatch SHA
+
+A checkout `ref:` cannot move a workflow dispatch's check suite to a different
+commit. Dispatch on the bot branch and require the API head SHA to match
+`github.sha`, the allowed branch, same repository, open/main base, and
+`gh pr view`’s `app/github-actions` author identity. Candidate tests run with read-only permissions and
+no persisted checkout credentials. Failure reporting runs in a separate job
+without any checkout or candidate artifact, and repeats the metadata guard
+before commenting. Do not combine candidate execution and write tokens.
+
 ## Quick checks before pushing a fix
 
 - [ ] Does `git log --oneline -- <file>` show this file being fixed for the
