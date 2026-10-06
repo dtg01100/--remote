@@ -31,14 +31,22 @@ against Fedora's archive first: for `gpm` they are identical.
 The import pull request carries the recipe plus the four artifacts the
 agreement gate compares (`.packit.yaml`, `config/upstream-sources.json`,
 `reports/import-source-bootstrap.json`, the refreshed
-`docs/architecture.md`), so it is born green: `tools/validate.py` passes
-on the source lock and Packit block, and the recipe-count tests
-match the inventory. Dispatch `.github/workflows/import-rawhide-package.yml`
-with the package name (the workflow runs the lock, the Packit-regen and
-the architecture-counts-refresh steps on `ubuntu-24.04`, and opens
-`import/rawhide-<name>`). When importing by hand on a workstation
-without `rpmspec`, lock the source in the pinned `quay.io/packit/packit`
-image as the workflow does. See
+`docs/architecture.md`), so when the lock step accepts the recipe the pull
+request is born green: `tools/validate.py` passes on the source lock and
+Packit block, and the recipe-count tests match the inventory. Dispatch
+`.github/workflows/import-rawhide-package.yml` with the package name (the
+workflow runs the lock, the Packit-regen and the architecture-counts-refresh
+steps on `ubuntu-24.04`, and opens `import/rawhide-<name>`). The lock step fails the workflow, and no pull
+request opens, when `tools/bootstrap_upstream_sources.py --package <name>`
+rejects the recipe — for example a `Source0` hosted on Fedora
+infrastructure, a `Source0` that is not a direct HTTP(S) URL, or upstream
+bytes that differ from the pin in `packages/<name>/sources`. Rerun that
+command locally to read the reason in `reports/import-source-bootstrap.json`
+(the workflow does not upload it). Import those recipes by hand: lock the upstream release with Fedora in `fallback_urls` (or as a
+`generate` entry, above), then regenerate `.packit.yaml` and the
+architecture counts as the workflow does. When importing by hand on a
+workstation without `rpmspec`, lock the source in the pinned
+`quay.io/packit/packit` image as the workflow does. See
 [`repeated-mistakes.md` section 23](skills/repeated-mistakes.md#23-an-import-pull-request-is-a-recipe-not-a-package).
 
 Build order is solved from the recipe's BuildRequires: a package builds after

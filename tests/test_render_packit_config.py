@@ -17,7 +17,7 @@ class RenderPackitConfigTests(unittest.TestCase):
         expected = rendered.count("    specfile_path:")
         self.assertEqual(rendered, (ROOT / ".packit.yaml").read_text())
         self.assertEqual(
-            sum(1 for _ in (ROOT / "packages").iterdir() if _.is_dir()),
+            sum(1 for path in (ROOT / "packages").iterdir() if path.is_dir()),
             expected,
         )
 

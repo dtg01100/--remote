@@ -40,7 +40,6 @@ class PackitSrpmTests(unittest.TestCase):
         # makes this test a real inventory invariant rather than a snapshot
         # of today's count.
         self.assertEqual(config_packages, source_packages)
-        self.assertEqual(config_packages - source_packages, set())
         self.assertTrue(
             {"adw-gtk3-theme", "igt-gpu-tools", "mesa", "runc", "webkitgtk"}
             <= config_packages

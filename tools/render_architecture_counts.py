@@ -10,8 +10,8 @@ numbers:
    ``len(source_locks(root))``
 4. ``cover all N recipes`` and ``a list of N satisfies`` →
    ``len(inventory(root))``
-5. ``validated N source RPMs`` (from ``tools/validate.py`` output) →
-   ``len(records)`` from validate
+5. ``validated N source RPMs (A rawhide, B upstream)`` (the whole
+   ``tools/validate.py`` success line) → ``validated_summary(records)``
 6. ``K of N packages carry a hand-assigned stage`` →
    ``sum('stage' in lock) / len(records)``
 
@@ -34,6 +34,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tools.package_inventory import inventory, source_locks
+from tools.validate import validated_summary
 
 ROOT = Path(__file__).resolve().parent.parent
 DOC = ROOT / "docs" / "architecture.md"
@@ -90,10 +91,12 @@ def render(text: str, root: Path) -> str:
         r"(which a list of )(\d+)( satisfies)",
         rf"\g<1>{n}\g<3>",
     )
+    # Quote validate's whole success line, provenance split included, so the
+    # parenthetical cannot go stale while only the total moves.
     text = _replace_one(
         text,
-        r"(validated )(\d+)( source RPMs)",
-        rf"\g<1>{n}\g<3>",
+        r"^validated \d+ source RPMs \([^)\n]*\)$",
+        validated_summary(records).replace("\\", r"\\"),
     )
     text = _replace_one(
         text,
