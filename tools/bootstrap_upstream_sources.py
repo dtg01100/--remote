@@ -119,7 +119,8 @@ def _digest_path(path: Path, algorithm: str) -> str:
     """Hash a file with ``algorithm``; rejects anything other than md5/sha512."""
     if algorithm not in ("md5", "sha512"):
         raise ValueError(f"unsupported hash algorithm: {algorithm}")
-    value = hashlib.new(algorithm)
+    # Pin comparison only, not a security use; keeps FIPS-mode Python working.
+    value = hashlib.new(algorithm, usedforsecurity=False)
     with path.open("rb") as source:
         for block in iter(lambda: source.read(1024 * 1024), b""):
             value.update(block)
@@ -183,7 +184,9 @@ def download_digests(url: str) -> tuple[str, str, str]:
     verified against exactly the bytes whose SHA-512 is written to the lock.
     """
     request = urllib.request.Request(url, headers={"User-Agent": "utah-packages-bootstrap/1"})
-    sha512_value, md5_value = hashlib.sha512(), hashlib.md5()
+    sha512_value = hashlib.sha512()
+    # Legacy md5 pins are only compared, not trusted; allowed under FIPS.
+    md5_value = hashlib.md5(usedforsecurity=False)
     with urllib.request.urlopen(request, timeout=120) as response:
         # GitHub release redirects end at an opaque object-store name, and some
         # upstreams have a meaningless path basename -- a crates.io download URL
@@ -196,11 +199,6 @@ def download_digests(url: str) -> tuple[str, str, str]:
             sha512_value.update(block)
             md5_value.update(block)
     return sha512_value.hexdigest(), md5_value.hexdigest(), filename
-
-
-def sha512(url: str) -> tuple[str, str]:
-    digest, _, filename = download_digests(url)
-    return digest, filename
 
 
 def main() -> int:

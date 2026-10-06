@@ -15,7 +15,6 @@ from tools.bootstrap_upstream_sources import (
     merge_candidates,
     plan_targets,
     prove_generated,
-    sha512,
 )
 
 
@@ -173,7 +172,8 @@ class Sha512Tests(unittest.TestCase):
             "tools.bootstrap_upstream_sources.urllib.request.urlopen",
             return_value=FakeResponse(payload),
         ):
-            return sha512(url)
+            digest, _, filename = download_digests(url)
+            return digest, filename
 
     def test_digests_the_whole_body_across_read_blocks(self) -> None:
         payload = b"x" * (1024 * 1024 * 2 + 17)
@@ -211,7 +211,7 @@ class Sha512Tests(unittest.TestCase):
             "tools.bootstrap_upstream_sources.urllib.request.urlopen",
             return_value=FakeResponse(b"body"),
         ) as urlopen:
-            sha512("https://upstream.example/pkg-1.0.tar.xz")
+            download_digests("https://upstream.example/pkg-1.0.tar.xz")
         request = urlopen.call_args.args[0]
         self.assertEqual(request.get_header("User-agent"), "utah-packages-bootstrap/1")
         self.assertEqual(urlopen.call_args.kwargs["timeout"], 120)
