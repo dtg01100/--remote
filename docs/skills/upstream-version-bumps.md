@@ -53,8 +53,11 @@ anything compiled.
 > manifest's recorded digest (#385). `tools/validate.py`
 > `check_sources_digests` refuses any `sources` file with a line that is
 > not a `SHA512 (file) = <128 hex>` pin, so an MD5 pin in either form
-> fails. `rewrite_sources()` only writes the SHA-512 form, so a fresh bump converts an old md5 line at the same time; a hand edit
-> that re-introduces one fails the gate.
+> fails. `rewrite_sources()` only writes the SHA-512 form for the primary
+> pin; bundled entries are kept verbatim, so a legacy md5 line on a bundled
+> entry survives the bump and the tree then fails `check_sources_digests`
+> (see `tools/upstream_bump.py:624-628`). Repin bundled entries by hand;
+> a hand edit that re-introduces one fails the gate.
 
 `check_bumpable()` refuses, before fetching anything, two
 recipes a bump cannot move on its own: a bundled entry whose name carries
