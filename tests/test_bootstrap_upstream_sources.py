@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tools.bootstrap_upstream_sources import (
+    download_digests,
     main,
     manifest_pins,
     merge_candidates,
@@ -193,6 +194,18 @@ class Sha512Tests(unittest.TestCase):
         _, filename = self._download("https://upstream.example/download#//pkg.tar.gz", b"body")
         self.assertEqual(filename, "pkg.tar.gz")
 
+    def test_md5_and_sha512_come_from_one_download(self) -> None:
+        payload = b"y" * (1024 * 1024 + 5)
+        with patch(
+            "tools.bootstrap_upstream_sources.urllib.request.urlopen",
+            return_value=FakeResponse(payload),
+        ) as urlopen:
+            digest, md5, filename = download_digests("https://upstream.example/pkg-1.0.tar.xz")
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(digest, hashlib.sha512(payload).hexdigest())
+        self.assertEqual(md5, hashlib.md5(payload).hexdigest())
+        self.assertEqual(filename, "pkg-1.0.tar.xz")
+
     def test_request_carries_the_bootstrap_user_agent(self) -> None:
         with patch(
             "tools.bootstrap_upstream_sources.urllib.request.urlopen",
@@ -332,7 +345,7 @@ class MainTests(unittest.TestCase):
     """`main` is the acceptance policy: which recipes become source locks.
 
     rpmspec and the network are replaced at the module seams (`rpm_value`,
-    `sources`, `sha512`, `generated_candidate`, `prove_generated`) so each
+    `sources`, `download_digests`, `generated_candidate`, `prove_generated`) so each
     test drives exactly one decision through the real CLI and file output.
     """
 
@@ -342,7 +355,7 @@ class MainTests(unittest.TestCase):
         self.root = Path(self._tmp.name).resolve()
         (self.root / "packages").mkdir()
         self.declared: dict[str, list[tuple[int, str]]] = {}
-        self.downloads: dict[str, tuple[str, str]] = {}
+        self.downloads: dict[str, tuple[str, str, str]] = {}
         self.fetched: list[str] = []
 
     def recipe(self, name: str, sources: list[tuple[int, str]] | None = None, specs: int = 1) -> Path:
@@ -356,7 +369,7 @@ class MainTests(unittest.TestCase):
 
     def serve(self, url: str, payload: bytes, filename: str) -> str:
         digest = hashlib.sha512(payload).hexdigest()
-        self.downloads[url] = (digest, filename)
+        self.downloads[url] = (digest, hashlib.md5(payload).hexdigest(), filename)
         return digest
 
     def _rpm_value(self, spec: Path, query: str) -> str:
@@ -365,7 +378,7 @@ class MainTests(unittest.TestCase):
     def _sources(self, spec: Path) -> list[tuple[int, str]]:
         return self.declared[spec.parent.name]
 
-    def _sha512(self, url: str) -> tuple[str, str]:
+    def _download_digests(self, url: str) -> tuple[str, str, str]:
         self.fetched.append(url)
         return self.downloads[url]
 
@@ -373,7 +386,7 @@ class MainTests(unittest.TestCase):
         module = "tools.bootstrap_upstream_sources"
         with patch(f"{module}.rpm_value", side_effect=self._rpm_value), \
                 patch(f"{module}.sources", side_effect=self._sources), \
-                patch(f"{module}.sha512", side_effect=self._sha512), \
+                patch(f"{module}.download_digests", side_effect=self._download_digests), \
                 patch("sys.argv", ["bootstrap_upstream_sources.py", "--root", str(self.root), *argv]), \
                 patch("sys.stdout", new_callable=io.StringIO):
             code = main()
@@ -471,41 +484,30 @@ class MainTests(unittest.TestCase):
     def test_explicit_selection_honours_a_legacy_md5_manifest_pin(self) -> None:
         url = "https://upstream.example/legacy-1.0.tar.gz"
         payload = b"legacy md5-pinned bytes"
-        # The test rig mocks sha512() to return (digest, filename); patch it
-        # so this test exercises the legacy-md5 code path which downloads and
-        # hashes the upstream URL itself.
         md5 = hashlib.md5(payload).hexdigest()
-        self.fetched.clear()
-        with patch(
-            "tools.bootstrap_upstream_sources._digest_response",
-            return_value=md5,
-        ) as digest_response:
-            package = self.recipe("legacy", [(0, url)])
-            (package / "sources").write_text(f"{md5}  legacy-1.0.tar.gz\n")
-            self.serve(url, payload, "legacy-1.0.tar.gz")
-            code, output, report = self.run_main("--package", "legacy")
+        package = self.recipe("legacy", [(0, url)])
+        (package / "sources").write_text(f"{md5}  legacy-1.0.tar.gz\n")
+        digest = self.serve(url, payload, "legacy-1.0.tar.gz")
+        code, output, report = self.run_main("--package", "legacy")
         self.assertEqual(code, 0)
-        self.assertEqual(output["packages"][0]["sha512"], hashlib.sha512(payload).hexdigest())
+        self.assertEqual(output["packages"][0]["sha512"], digest)
         self.assertEqual(report["rejected"], [])
-        digest_response.assert_called_once_with(url, "md5")
+        # The md5 pin is checked against the same single download whose
+        # SHA-512 is locked, never a second fetch.
+        self.assertEqual(self.fetched, [url])
 
     def test_explicit_selection_rejects_md5_drift_against_a_legacy_manifest_pin(self) -> None:
         url = "https://upstream.example/legacy-1.0.tar.gz"
-        # Pin records one md5; we serve different bytes, so the comparison
-        # in the md5 algorithm must disagree and reject the recipe.
         md5 = hashlib.md5(b"fedora's bytes").hexdigest()
-        with patch(
-            "tools.bootstrap_upstream_sources._digest_response",
-            return_value=hashlib.md5(b"upstream bytes").hexdigest(),
-        ):
-            package = self.recipe("legacy", [(0, url)])
-            (package / "sources").write_text(f"{md5}  legacy-1.0.tar.gz\n")
-            self.serve(url, b"upstream bytes", "legacy-1.0.tar.gz")
-            _, output, report = self.run_main("--package", "legacy")
+        package = self.recipe("legacy", [(0, url)])
+        (package / "sources").write_text(f"{md5}  legacy-1.0.tar.gz\n")
+        self.serve(url, b"upstream bytes", "legacy-1.0.tar.gz")
+        _, output, report = self.run_main("--package", "legacy")
         self.assertEqual(output["packages"], [])
         self.assertEqual(self.reasons(report)["legacy"],
                          f"upstream bytes for legacy-1.0.tar.gz do not match the pinned manifest: "
                          f"expected MD5 {md5}, got MD5 {hashlib.md5(b'upstream bytes').hexdigest()}")
+        self.assertEqual(self.fetched, [url])
 
     def test_default_scan_does_not_gate_on_the_manifest_pin(self) -> None:
         url = "https://upstream.example/pkg-1.0.tar.xz"
