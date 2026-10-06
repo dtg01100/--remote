@@ -10,14 +10,15 @@ import urllib.parse
 from pathlib import Path
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
-# Legacy Fedora dist-git `sources` lines pin the MD5 with the hash first and
-# the filename second: `<32 hex>  file`. The factory requires a SHA-512 pin
-# for every entry -- MD5 is collision-weak, and the lookaside fetch path is
-# gated only by the manifest's recorded digest. source_pipeline parses only
-# the SHA-512 form today, so md5 lines are inert; this check refuses the
-# legacy form on a live tree so it cannot become a fetch path later (it
-# pre-empts the md5 parsing proposed in open PR #351).
-LEGACY_MD5_LINE = re.compile(r"^[0-9a-f]{32}\s+\S+")
+# The only `sources` line form the factory accepts: the BSD-style SHA-512 pin
+# that source_pipeline.source_manifest parses. Legacy Fedora dist-git lines
+# pin the MD5 hash-first (`<32 hex>  file`), and the BSD form can name MD5 or
+# another algorithm (`MD5 (file) = <hex>`). MD5 is collision-weak and the
+# lookaside fetch path is gated only by the manifest's recorded digest.
+# source_pipeline ignores every other form today, so such lines are inert;
+# this check refuses them on a live tree so none can become a fetch path
+# later (it pre-empts the md5 parsing proposed in open PR #351).
+SHA512_SOURCES_LINE = re.compile(r"SHA512 \(\S+\) = [0-9a-f]{128}")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -223,19 +224,20 @@ def validated_summary(records) -> str:
 
 
 def check_sources_digests(root: Path) -> None:
-    """Fail when any `sources` file still pins a bundled tarball by MD5.
+    """Fail when any `sources` file pins a bundled tarball by anything but SHA-512.
 
     The legacy md5 form (`<32 hex>  file`) is what older dist-git recipes
-    shipped. `source_pipeline` currently ignores it (only the SHA-512 form is
+    shipped; the BSD form can also name MD5 or another algorithm
+    (`MD5 (file) = <hex>`, `SHA256 (file) = <hex>`). `source_pipeline` currently ignores it (only the SHA-512 form is
     parsed), so such a line is inert rather than a live fetch path; refusing
     it here pre-empts any future md5 parsing (e.g. open PR #351) from
     becoming reachable. Every carried recipe must use the SHA-512 form
     instead -- MD5 is collision-weak, the lookaside fetch path is gated only
     by the manifest's recorded digest, and the same digest is the only thing
     standing between a published RPM and a substituted archive
-    (utah-packages#385). A line in either SHA-512 form
-    (`SHA512 (file) = <128 hex>`) or a blank line passes; the legacy form
-    names the offender so the repin is mechanical.
+    (utah-packages#385). Only a SHA-512 line (`SHA512 (file) = <128 hex>`)
+    or a blank line passes; any other line is named as the offender so the
+    repin is mechanical.
     """
     packages_dir = root / "packages"
     if not packages_dir.is_dir():
@@ -248,12 +250,14 @@ def check_sources_digests(root: Path) -> None:
         if not manifest.is_file():
             continue
         for line in manifest.read_text().splitlines():
-            if LEGACY_MD5_LINE.match(line.strip()):
-                offenders.append(f"{manifest}: {line.strip()}")
+            stripped = line.strip()
+            if stripped and not SHA512_SOURCES_LINE.fullmatch(stripped):
+                offenders.append(f"{manifest}: {stripped}")
                 break
     if offenders:
         raise SystemExit(
-            "sources manifest pins a bundled tarball by MD5; repin to SHA-512:\n"
+            "sources manifest pins a bundled tarball by MD5 or another non-SHA-512 "
+            "form; repin to SHA-512:\n"
             + "\n".join(offenders)
         )
 
