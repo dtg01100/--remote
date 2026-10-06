@@ -18,7 +18,7 @@ FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 # source_pipeline ignores every other form today, so such lines are inert;
 # this check refuses them on a live tree so none can become a fetch path
 # later (it pre-empts the md5 parsing proposed in open PR #351).
-SHA512_SOURCES_LINE = re.compile(r"SHA512 \(\S+\) = [0-9a-f]{128}")
+# SHA512_SOURCES_LINE is shared with source_pipeline so gate and parser agree.
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -27,6 +27,7 @@ from tools.check_suppressed_tests import main as check_suppressed_tests
 from tools.bootstrap_upstream_sources import FEDORA_HOSTS
 from tools.bump_gate import REVIEW_ONLY, load_review_only
 from tools.package_inventory import inventory
+from tools.source_pipeline import SHA512_SOURCES_LINE
 
 
 def check_buildroot_drift(data: dict, pin_file: Path) -> None:

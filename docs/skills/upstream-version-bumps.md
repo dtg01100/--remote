@@ -43,7 +43,7 @@ fetched from Fedora's lookaside by digest (`source_pipeline.py`
 tree. `rewrite_sources()` replaces only the primary line, in place, and
 keeps every other line verbatim, in either manifest form: the BSD
 `ALGO (file) = hex` lines and the legacy md5sum `hex  file` lines ten carried
-recipes still use (#326). Keeping only the BSD lines dropped those pins too.
+recipes used at the time of #326. Keeping only the BSD lines dropped those pins too.
 Rewriting the manifest to the tarball alone dropped them, and in the first
 gated bump (run 37129679613) adw-gtk3-theme, fish, gum and ppp all died in
 `rpmbuild -bs`, reported as "lock resolve failed 3 times", before
@@ -58,6 +58,13 @@ anything compiled.
 > entry survives the bump and the tree then fails `check_sources_digests`
 > (see `tools/upstream_bump.py:624-628`). Repin bundled entries by hand;
 > a hand edit that re-introduces one fails the gate.
+
+For a manifest repin, distinguish the primary Source0 from bundled lookaside
+objects. The nine legacy primary pins in #388 already had SHA-512 entries
+in `source_locks.json`: streamed downloads matched those locks and the new
+manifest lines. That changes the recorded algorithm without changing source
+bytes or requiring a new lookaside object. A bundled-file repin needs its own
+verified bytes and reachable digest URL; a passing format check proves neither.
 
 `check_bumpable()` refuses, before fetching anything, two
 recipes a bump cannot move on its own: a bundled entry whose name carries
