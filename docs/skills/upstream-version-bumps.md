@@ -47,7 +47,16 @@ recipes still use (#326). Keeping only the BSD lines dropped those pins too.
 Rewriting the manifest to the tarball alone dropped them, and in the first
 gated bump (run 37129679613) adw-gtk3-theme, fish, gum and ppp all died in
 `rpmbuild -bs`, reported as "lock resolve failed 3 times", before
-anything compiled. `check_bumpable()` refuses, before fetching anything, two
+anything compiled.
+
+> MD5 is collision-weak; the lookaside fetch path is gated only by the
+> manifest's recorded digest (#385). `tools/validate.py`
+> `check_sources_digests` refuses any `sources` file that still pins a
+> bundled tarball by MD5. `rewrite_sources()` only writes the SHA-512 form,
+> so a fresh bump converts an old md5 line at the same time; a hand edit
+> that re-introduces one fails the gate.
+
+`check_bumpable()` refuses, before fetching anything, two
 recipes a bump cannot move on its own: a bundled entry whose name carries
 the old version, in either its RPM or tarball spelling
 (`gum-2.0.0-vendor.tar.bz2`, `fish-4.6.0.tar.xz.asc`,

@@ -10,6 +10,13 @@ import urllib.parse
 from pathlib import Path
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
+# Legacy Fedora dist-git `sources` lines pin the MD5 with the hash first and
+# the filename second: `<32 hex>  file`. The factory requires a SHA-512 pin
+# for every entry -- MD5 is collision-weak, and the lookaside fetch path is
+# gated only by the manifest's recorded digest. PR #351 taught source_pipeline
+# to read the legacy form, which closed a correctness gap; this check closes
+# the security gap by refusing the form on a live tree.
+LEGACY_MD5_LINE = re.compile(r"^[0-9a-f]{32}\s+\S+")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -199,6 +206,40 @@ def check_bump_review_only(root: Path) -> None:
         )
 
 
+def check_sources_digests(root: Path) -> None:
+    """Fail when any `sources` file still pins a bundled tarball by MD5.
+
+    The legacy md5 form (`<32 hex>  file`) is what older dist-git recipes
+    shipped and what `source_manifest` parses as a stop-gap so a stale entry
+    cannot crash the build. Every carried recipe must use the SHA-512 form
+    instead -- MD5 is collision-weak, the lookaside fetch path is gated only
+    by the manifest's recorded digest, and the same digest is the only thing
+    standing between a published RPM and a substituted archive
+    (utah-packages#385). A line in either SHA-512 form
+    (`SHA512 (file) = <128 hex>`) or a blank line passes; the legacy form
+    names the offender so the repin is mechanical.
+    """
+    packages_dir = root / "packages"
+    if not packages_dir.is_dir():
+        return
+    offenders: list[str] = []
+    for directory in sorted(packages_dir.iterdir()):
+        if not directory.is_dir():
+            continue
+        manifest = directory / "sources"
+        if not manifest.is_file():
+            continue
+        for line in manifest.read_text().splitlines():
+            if LEGACY_MD5_LINE.match(line.strip()):
+                offenders.append(f"{manifest}: {line.strip()}")
+                break
+    if offenders:
+        raise SystemExit(
+            "sources manifest pins a bundled tarball by MD5; repin to SHA-512:\n"
+            + "\n".join(offenders)
+        )
+
+
 def main(root: Path = Path(".")) -> int:
     packages_dir = root / "packages"
     if not packages_dir.is_dir():
@@ -220,6 +261,7 @@ def main(root: Path = Path(".")) -> int:
     # Before the tally too: a lock that builds from the lookaside is a
     # provenance failure whether or not every recipe is otherwise accounted for.
     check_fedora_primary_sources(root)
+    check_sources_digests(root)
     check_bump_review_only(root)
     records = inventory(root)
     missing_locks = sorted(record.name for record in records if not record.source_locked)
