@@ -43,7 +43,7 @@ fetched from Fedora's lookaside by digest (`source_pipeline.py`
 tree. `rewrite_sources()` replaces only the primary line, in place, and
 keeps every other line verbatim, in either manifest form: the BSD
 `ALGO (file) = hex` lines and the legacy md5sum `hex  file` lines ten carried
-recipes still use (#326). Keeping only the BSD lines dropped those pins too.
+recipes used at the time of #326. Keeping only the BSD lines dropped those pins too.
 Rewriting the manifest to the tarball alone dropped them, and in the first
 gated bump (run 37129679613) adw-gtk3-theme, fish, gum and ppp all died in
 `rpmbuild -bs`, reported as "lock resolve failed 3 times", before
@@ -55,6 +55,13 @@ anything compiled.
 > not a `SHA512 (file) = <128 hex>` pin, so an MD5 pin in either form
 > fails. `rewrite_sources()` only writes the SHA-512 form, so a fresh bump converts an old md5 line at the same time; a hand edit
 > that re-introduces one fails the gate.
+
+For a manifest repin, distinguish the primary Source0 from bundled lookaside
+objects. The nine legacy primary pins in #388 already had SHA-512 entries
+in `source_locks.json`: streamed downloads matched those locks and the new
+manifest lines. That changes the recorded algorithm without changing source
+bytes or requiring a new lookaside object. A bundled-file repin needs its own
+verified bytes and reachable digest URL; a passing format check proves neither.
 
 `check_bumpable()` refuses, before fetching anything, two
 recipes a bump cannot move on its own: a bundled entry whose name carries
@@ -191,6 +198,16 @@ Constraints that shaped it, so they are not rediscovered:
   `action_required`; their pending `Canary` blocked the first gated merge
   ("the base branch policy prohibits the merge"). The merge job approves
   parked runs on the exact commit it built before waiting for Canary.
+- Approving a parked run RESTARTS it, so waiting on the check-runs API
+  after the approval is racy: the completed `Canary` check-run it sees can
+  predate the restart while the merge policy already sees the fresh pending
+  run, and the merge fails the same policy refusal the approval was meant
+  to clear (bump gate run 37418964510 on utah-packages#374). The wait tracks
+  the approved `Canary` run IDs through the runs API instead, whose
+  per-run status cannot go stale; the check-runs query stays only as the
+  final confirmation. Only `Canary`-named runs are tracked: other parked
+  runs are still released, but a non-required check must never gate the
+  merge.
 - A relock (a dispatched `--package` run that moves a primary off the Fedora
   lookaside) changes `config/fedora-primary-sources.txt`, which the gate
   refuses: moving a source's origin stays a human merge.
