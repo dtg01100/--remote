@@ -22,8 +22,10 @@ class BotPrTrustTests(unittest.TestCase):
 
     def test_accepts_import_head_with_plus_in_package_name(self):
         # Fedora dist-git package names use the ASCII character set
-        # ``[a-zA-Z0-9-._+]``; ``+`` is reserved for Python version
-        # suffixes (e.g. ``libsigc++30``). Rejecting those refs makes
+        # ``[a-zA-Z0-9-._+]``; ``+`` is part of the package name itself
+        # for C++ libraries (e.g. ``libsigc++``, ``libstdc++``), with
+        # the trailing digits being a SONAME or version suffix rather
+        # than a Python-suffix convention. Rejecting those refs makes
         # the validator fail before any gate runs, so the report job
         # exits 1 without commenting on the import itself (#402).
         self.pr["headRefName"] = "import/rawhide-libsigc++30"
