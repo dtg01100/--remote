@@ -58,10 +58,17 @@ Two edits — never one, never none:
 
 - Remove the entry from `[areas.<area>].packages`.
 - Add the entry to either:
-  - `[resolved].packages` (`{ name = "<n>", commit = "<sha>" }`) — a recipe
-    was imported, or
+  - `[resolved].packages` (`{ name = "<n>", commit = "<sha>", pr = <n> }`) —
+    a recipe was imported. `commit` and `pr` are both informational; the
+    closing record is the import PR (the one this two-edit move ships in)
+    and `tools/factory_build_backlog.py:356-357` only reads `entry["name"]`.
+    Do not pre-fill `commit` with a SHA from a future commit that does not
+    exist yet at PR-open time, and do not let a rebase or squash-merge
+    invalidate it. The `pr` field links the entry to its closing PR for
+    cross-referencing.
   - `[wontfix].packages` (`{ name = "<n>", reason = "..." }`) — Utah decided
-    not to carry it, with a link to the decision issue.
+    not to carry it, with a link to the decision issue. `reason` is also
+    informational and not validated.
 
 `[resolved]` is the only closing record. A recipe import PR makes this
 two-edit move in the same PR; `already_recipe` is the auditor's observation
