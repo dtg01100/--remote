@@ -1,29 +1,6 @@
-# Validate the config that bot PRs propose.
-#
-# peter-evans/create-pull-request opens the chore/buildroot-mirror and
-# import/rawhide-<pkg> PRs with the workflow's own GITHUB_TOKEN, and GitHub
-# deliberately does not run pull_request workflows for events it caused: a
-# GITHUB_TOKEN-opened PR starts no checks, so validate.yml never exercises
-# the new pin, lock, recipes, or imports before a maintainer approves the
-# PR. The first three weekly refreshes after that landed had no checks at
-# all (issue #377, runs reported as "0 checks").
-#
-# The same gap closed for the daily bump already, but on a different seam:
-# bump-upstream-gate.yml is workflow_dispatch'd from the bump workflow and
-# itself calls the rebuild. Its check suite appears on the PR because the
-# dispatched run is workflow_dispatch from this repository's own GITHUB_TOKEN
-# (the same token the bot workflow used), so GitHub attaches it to the
-# dispatching PR head SHA. buildroot and import use this workflow for the
-# same reason: dispatch from the bot workflow's last step, the workflow
-# checks out the PR's head SHA, and the check suite attaches to the PR.
-#
-# workflow_run was tried first (#378 instead) and found unable to attach
-# checks to GITHUB_TOKEN-opened bot PRs: pull_requests[] is empty for
-# schedule/workflow_dispatch triggers, so the job's if-gate never fires.
-# workflow_dispatch does not have that limitation: a dispatch from the
-# bot workflow runs in this repository's context with refs/pr (not workflow_run)
-# and its check suite attaches to the PR head SHA opened by the bot.
-
+# Dispatch on the proposed branch: GitHub attaches the check to the dispatch
+# SHA, not an arbitrary later checkout. Require that ref/SHA to be the current
+# same-repository bot PR, and keep all candidate execution read-only.
 name: Validate bot pull requests
 
 permissions:
@@ -46,34 +23,24 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      # write is scoped here, not at the workflow level, because only the
-      # gh pr comment step on failure needs it; the validation runs are
-      # read-only.
-      pull-requests: write
+      pull-requests: read
     steps:
-      - name: Resolve the PR head SHA and branch from the PR number
-        id: resolve
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require the current same-repository bot head
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ inputs.pr }}
           REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          head="$(gh pr view "$PR" -R "$REPOSITORY" --json headRefName,headRefOid \
-              --jq '.headRefOid + " " + .headRefName')"
-          echo "head=$head"
-          SHA="${head%% *}"
-          BRANCH="${head#* }"
-          test -n "$SHA"
-          test -n "$BRANCH"
-          {
-            echo "sha=$SHA"
-            echo "branch=$BRANCH"
-          } >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ steps.resolve.outputs.sha }}
-          fetch-depth: 1
+          gh pr view "$PR" -R "$REPOSITORY" \
+            --json state,baseRefName,headRefName,headRefOid,headRepository,author > pr.json
+          python3 -m tools.bot_pr_trust pr.json "$REPOSITORY" "$SHA" "$BRANCH"
       - name: Validate factory configuration
         run: |
           # gate
@@ -98,21 +65,30 @@ jobs:
         run: |
           # gate
           python3 -m pytest tests -q
-      - name: Comment on the pull request with the validation outcome
-        if: failure()
+  report:
+    needs: validate
+    if: failure() && needs.validate.result == 'failure'
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: write
+    steps:
+      # No checkout, candidate code, or downloaded artifacts in this job.
+      - name: Report failure only for the current bot head
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ inputs.pr }}
+          PR: ${{ inputs.pr }}
           REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          gh pr comment "$PR_NUMBER" -R "$REPOSITORY" --body "\
-            ### Validation failed for the bot pull request
-
-            The bot pull request failed one of the validation
-            steps in \`bot-pr-validate.yml\`. Inspect the [workflow run
-            log]($RUN_URL) and fix the cause before merging.
-
-            The PR is still mergeable; this comment is informational. A
-            maintainer should rerun this workflow once the cause is fixed."
+          [[ "$BRANCH" =~ ^(chore/buildroot-mirror|import/rawhide-[A-Za-z0-9][A-Za-z0-9_.+-]*)$ ]] || exit 1
+          gh pr view "$PR" -R "$REPOSITORY" \
+            --json state,baseRefName,headRefName,headRefOid,headRepository,author > pr.json
+          jq -e --arg sha "$SHA" --arg branch "$BRANCH" --arg repo "$REPOSITORY" '
+            .state == "OPEN" and .baseRefName == "main" and .headRefOid == $sha
+            and .headRefName == $branch and .headRepository.nameWithOwner == $repo
+            and .author.login == "app/github-actions"' pr.json > /dev/null
+          gh pr comment "$PR" -R "$REPOSITORY" \
+            --body "Factory validation failed for $SHA. Inspect $RUN_URL before merging."
