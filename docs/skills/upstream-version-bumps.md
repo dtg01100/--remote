@@ -66,6 +66,12 @@ manifest lines. That changes the recorded algorithm without changing source
 bytes or requiring a new lookaside object. A bundled-file repin needs its own
 verified bytes and reachable digest URL; a passing format check proves neither.
 
+For the nine primary manifest repins in #388, streamed archive downloads
+matched both the existing `source_locks.json` SHA-512 values and the new
+manifest lines. No source bytes changed and no new lookaside object is
+needed for those Source0 entries. Bundled-file repins need separate byte
+verification and a reachable digest URL; a format check proves neither.
+
 `check_bumpable()` refuses, before fetching anything, two
 recipes a bump cannot move on its own: a bundled entry whose name carries
 the old version, in either its RPM or tarball spelling
