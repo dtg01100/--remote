@@ -43,6 +43,7 @@ the most-specific state wins.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -371,6 +372,13 @@ def _report(root: Path, catalog_path: Path) -> dict:
 
     all_backlog, by_area, wontfix_set, resolved_set = _catalog_totals(catalog)
 
+    audited_names = all_backlog | wontfix_set | resolved_set
+    names_digest = hashlib.sha256(
+        ("\n".join(sorted(audited_names)) + "\n").encode()
+    ).hexdigest()
+    if meta.get("audit_names_sha256") and names_digest != meta["audit_names_sha256"]:
+        raise SystemExit("catalog names differ from the pinned audit; counts alone do not preserve identity")
+
     # The catalog is the contract: any name in the backlog appears exactly
     # once -- not twice in one area's list, and not once in each of two areas.
     seen: dict[str, int] = {}
@@ -446,6 +454,7 @@ def _report(root: Path, catalog_path: Path) -> dict:
         "audit_digest_bluefin": meta.get("audit_digest_bluefin", ""),
         "audit_digest_utah": meta.get("audit_digest_utah", ""),
         "audit_digest_factory": meta.get("audit_digest_factory", ""),
+        "audit_names_sha256": meta.get("audit_names_sha256", ""),
         "totals": {
             "backlog": len(all_backlog),
             "resolved": len(resolved_set),
@@ -498,7 +507,7 @@ def _check(report: dict, path: Path) -> int:
             f"audit_source drift: live {report.get('audit_source')!r} vs "
             f"snapshot {on_disk.get('audit_source')!r}"
         )
-    for digest in ("audit_digest_bluefin", "audit_digest_utah", "audit_digest_factory"):
+    for digest in ("audit_digest_bluefin", "audit_digest_utah", "audit_digest_factory", "audit_names_sha256"):
         if report.get(digest) != on_disk.get(digest):
             errors.append(
                 f"{digest} drift: live {report.get(digest)!r} vs snapshot {on_disk.get(digest)!r}"

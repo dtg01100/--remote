@@ -17,18 +17,16 @@
 # A name added here MUST also appear in the audited list referenced
 # by `[meta].audit_source`; the contract test
 # `tests/test_factory_build_backlog.py::CatalogConsistencyTests::test_real_catalog_matches_the_audit_count`
-# enforces that the count of names in areas + [resolved] + [wontfix] equals
-# the 551-name audit count, and the overlap checks reject any name that
-# appears in more than one of those three tables. A one-for-one swap (drop
-# one audited name, add a stray one) keeps the sum at 551; the named-set
-# identity is the responsibility of the human editor keeping this file in
-# sync with `[meta].audit_source`.
+# pins both the total and the SHA-256 of the sorted audited names. The
+# auditor also checks that digest across areas + [resolved] + [wontfix], so
+# replacing one audited name with a stray name fails even at equal count.
 #
 # Removing a name requires two edits: drop it here AND mark it in
 # `[resolved]` (recipe imported) or `[wontfix]` (decided not to
 # carry, with a reason), so the count never silently shrinks.
 
 [meta]
+audit_names_sha256 = "48210d268ba97da8da55f883529ee27f38bc48a4d8f3c4fad46913ef8614d07b"
 issue = "projectbluefin/utah-packages#308"
 audit_source = "https://gist.github.com/hanthor/b9b1e3a7f13c51376b771f97a7409a30"
 audit_digest_bluefin = "sha256:1e37db65e78f7f394e16608aa8449bd6be43eb691ae9f98b619044ffba23c64e"

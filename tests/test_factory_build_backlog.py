@@ -19,6 +19,7 @@ exercised without pulling or modifying the live repository.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import tempfile
@@ -133,6 +134,7 @@ class CatalogTotalsTests(unittest.TestCase):
             '[wontfix]\npackages = []\n'
         )
         all_backlog, by_area, wontfix, resolved = backlog._catalog_totals(catalog)
+
         self.assertEqual(all_backlog, {"x", "y", "z"})
         self.assertEqual(by_area, {"a": ["x", "y"], "b": ["z"]})
         self.assertEqual(wontfix, set())
@@ -522,6 +524,11 @@ class CatalogConsistencyTests(unittest.TestCase):
         with (repo_root / "config" / "factory-build-backlog.toml").open("rb") as handle:
             catalog = tomllib.load(handle)
         all_backlog, by_area, wontfix, resolved = backlog._catalog_totals(catalog)
+        digest = hashlib.sha256(
+            ("\n".join(sorted(all_backlog | wontfix | resolved)) + "\n").encode()
+        ).hexdigest()
+        self.assertEqual(digest, "48210d268ba97da8da55f883529ee27f38bc48a4d8f3c4fad46913ef8614d07b")
+        self.assertEqual(catalog["meta"]["audit_names_sha256"], digest)
         self.assertEqual(
             len(all_backlog) + len(resolved) + len(wontfix),
             self.CATALOG_TOTAL,
@@ -734,3 +741,20 @@ class CheckGateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AuditIdentityTests(unittest.TestCase):
+    def test_equal_count_substitution_fails_but_closing_record_preserves_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _populate(root, recipes=[], locked=[], packit=[], manifest=[])
+            digest = hashlib.sha256(b"x\ny\n").hexdigest()
+            path = _toml(root, {"area": ["x", "y"]})
+            path.write_text(path.read_text().replace("[meta]", f'[meta]\naudit_names_sha256 = "{digest}"'))
+            self.assertEqual(backlog._report(root, path)["totals"]["backlog"], 2)
+            path.write_text(path.read_text().replace('"y",', '"stray",'))
+            with self.assertRaisesRegex(SystemExit, "catalog names differ"):
+                backlog._report(root, path)
+            path = _toml(root, {"area": ["x"]}, resolved=["y"])
+            path.write_text(path.read_text().replace("[meta]", f'[meta]\naudit_names_sha256 = "{digest}"'))
+            self.assertEqual(backlog._report(root, path)["totals"]["resolved"], 1)

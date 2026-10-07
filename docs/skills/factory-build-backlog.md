@@ -77,7 +77,11 @@ before the name was catalogued), not an alternative way to close it, and the
 next PR that touches the name sweeps it into `[resolved]`.
 
 The catalog test (`tests/test_factory_build_backlog.py::CatalogConsistencyTests`)
-fails a PR that drops a name without recording the decision. The auditor
+pins the count and sorted-name SHA-256 against the original audit. The auditor
+checks that same digest across area, resolved and wontfix entries. A one-for-one
+substitution fails even when all counts remain unchanged; moving an existing
+name to a closing record preserves the digest. The baseline was verified
+against the pinned gist's `nowhere-551.txt`; changing it requires a new audit. The auditor
 itself fails when the catalog totals do not reconcile with the report.
 
 ## Diagnosing drift

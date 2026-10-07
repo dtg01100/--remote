@@ -50,6 +50,7 @@
   "audit_digest_factory": "sha256:0f04cff2dd0b085604ff3cd79d538ab14b97cbe356980f7d365a35dfc70c857b",
   "audit_digest_utah": "sha256:dd2fd57e0b4d70d33274a281d27bd473f464466c3fcc7747fe6ced536705b19c",
   "audit_measured_at": "2026-09-30T22:08:14Z",
+  "audit_names_sha256": "48210d268ba97da8da55f883529ee27f38bc48a4d8f3c4fad46913ef8614d07b",
   "audit_source": "https://gist.github.com/hanthor/b9b1e3a7f13c51376b771f97a7409a30",
   "entries": [
     {
