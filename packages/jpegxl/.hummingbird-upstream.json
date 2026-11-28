@@ -2,7 +2,7 @@
   "package": "jpegxl",
   "branch": "rawhide",
   "remote": "https://src.fedoraproject.org/rpms/jpegxl.git",
-  "commit": "c3b9163ecab9b3d0c629b2e8523ff795c3b7b35f",
-  "tree": "eaa29a730bacdc476ec81972aa36b6ea68c782af",
-  "imported_at": "2026-09-03T22:53:13.487100+00:00"
+  "commit": "ba469e4fcd518642b7c18877163cfe69d98fa503",
+  "tree": "d26741ae88e8a23ca26a6a7a7523861355ebf081",
+  "imported_at": "2026-11-28T05:20:00.535509+00:00"
 }

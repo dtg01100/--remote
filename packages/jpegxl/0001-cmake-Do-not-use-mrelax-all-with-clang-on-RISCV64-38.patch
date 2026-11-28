@@ -1,0 +1,58 @@
+From 192294e15e1d27660d887bc3b9b5ead8e5aa6a93 Mon Sep 17 00:00:00 2001
+From: Khem Raj <raj.khem@gmail.com>
+Date: Fri, 8 Aug 2025 06:42:42 -0700
+Subject: [PATCH] cmake: Do not use -mrelax-all with clang on RISCV64 (#3826)
+
+This option causes clang 19+ to crash on riscv64
+
+For RISC-V -mrelax-all causes the assembler stage to convert
+all conditional branches into
+
+  bcc reg, reg, tmplabel
+  jmp target
+tmplabel:
+
+Unconditional jmp can reach targets a lot further than a conditional branch.
+Unfortunately, jmp also has a limited range so sometimes needs to be
+converted to an indirect jump which requires a scratch register.
+We do all branch relaxation early for RISC-V during the compilation
+stage so we can allocate the scratch register.
+
+If the assembler also does branch relaxation it will increase the size
+of the function and may cause unconditional jmps to go out of range.
+If this happens, linking will fail.
+
+Co-authored-by: Eugene Kliuchnikov <eustas@google.com>
+---
+ AUTHORS        | 1 +
+ CMakeLists.txt | 2 +-
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/AUTHORS b/AUTHORS
+index 7407cc24..4a86560c 100644
+--- a/AUTHORS
++++ b/AUTHORS
+@@ -73,6 +73,7 @@ Jonathan Brown (Jonnyawsom3) <jonathanbr30@gmail.com>
+ Joshua Root <jmr@macports.org>
+ Kai Hollberg <Schweinepriester@users.noreply.github.com>
+ Kerry Su <me@sshockwave.net>
++Khem Raj <raj.khem@gmail.com>
+ Kleis Auke Wolthuizen <github@kleisauke.nl>
+ L. E. Segovia
+ ledoge
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 7027dbb2..af103dc9 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -365,7 +365,7 @@ else ()
+ 
+   # Machine flags.
+   add_compile_options(-funwind-tables)
+-  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
++  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES "riscv")
+     add_compile_options("SHELL:-Xclang -mrelax-all")
+   endif()
+   if (CXX_CONSTRUCTOR_ALIASES_SUPPORTED)
+-- 
+2.55.0
+
